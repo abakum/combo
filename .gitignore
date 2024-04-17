@@ -19,3 +19,7 @@
 
 # Go workspace file
 go.work
+
+internal
+encrypted_fs.go
+*.enc
