@@ -4,16 +4,17 @@ go 1.21.4
 
 replace internal/tool => ./internal/tool
 
+// replace github.com/abakum/winssh => ../winssh
+
 replace github.com/ThalesIgnite/crypto11 v1.2.5 => github.com/blacknon/crypto11 v1.2.6
 
 require (
-	github.com/Microsoft/go-winio v0.6.1
-	github.com/abakum/embed-encrypt v0.0.0-20240330115809-059354cfa29a
+	github.com/abakum/embed-encrypt v0.0.0-20240419131915-ba2ccee1a359
 	github.com/abakum/go-ansiterm v0.0.0-20240209124652-4fc46d492442
-	github.com/abakum/go-console v0.0.0-20231203133515-5d1e7fd8831f
+	github.com/abakum/go-console v0.0.0-20240401135801-ff2ca721c6ad
 	github.com/abakum/go-netstat v0.0.0-20231106075911-001f10558dcf
-	github.com/abakum/menu v0.0.0-20240212125241-bf7578ad1b3a
-	github.com/abakum/pageant v0.0.0-20240210190511-4450a30bb403
+	github.com/abakum/menu v0.0.0-20240419084129-0b97c23cf292
+	github.com/abakum/pageant v0.0.0-20240419114114-01633e0d85e4
 	github.com/abakum/version v0.1.3-lw
 	github.com/abakum/winssh v0.0.0-20240415133556-bafe6ee0f83e
 	github.com/gliderlabs/ssh v0.3.7
@@ -24,6 +25,7 @@ require (
 )
 
 require (
+	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/creack/pty v1.1.21 // indirect
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203 // indirect

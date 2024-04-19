@@ -4,6 +4,7 @@ package main
 git clone https://github.com/abakum/combo
 go mod init github.com/abakum/combo
 
+Для VScode через ssh копируем internal и *.enc на хост с sshd
 go get internal/tool
 go mod tidy
 */
@@ -15,8 +16,11 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -24,8 +28,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Microsoft/go-winio"
 	"github.com/abakum/embed-encrypt/encryptedfs"
+	"github.com/abakum/go-console"
 	"github.com/abakum/menu"
 	"github.com/abakum/pageant"
 
@@ -36,7 +40,6 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
-	"golang.org/x/sys/windows/registry"
 )
 
 var (
@@ -184,7 +187,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 
 	ss := []ssh.Signer{caSigner}
 	// agent
-	rw, err := NewConn()
+	rw, err := pageant.NewConn()
 	if err == nil {
 		defer rw.Close()
 		ea := agent.NewClient(rw)
@@ -231,19 +234,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 				Println(userKnownHostsFile, os.WriteFile(userKnownHostsFile, bb.Bytes(), FILEMODE))
 				// for putty ...they_verify_me_by_certificate
 				// пишем ветку реестра SshHostCAs для putty клиента чтоб он доверял хосту по сертификату ЦС caSigner
-				rk, _, err := registry.CreateKey(registry.CURRENT_USER,
-					`SOFTWARE\SimonTatham\PuTTY\SshHostCAs\`+id,
-					registry.CREATE_SUB_KEY|registry.SET_VALUE)
-				if err == nil {
-					rk.SetStringValue("PublicKey", strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())))
-					rk.SetStringValue("Validity", "*")
-					rk.SetDWordValue("PermitRSASHA1", 0)
-					rk.SetDWordValue("PermitRSASHA256", 1)
-					rk.SetDWordValue("PermitRSASHA512", 1)
-					rk.Close()
-				} else {
-					Println(err)
-				}
+				puttyHostCA(id, data, pub)
 			}
 		}
 		mas, err := ssh.NewSignerWithAlgorithms(caSigner.(ssh.AlgorithmSigner),
@@ -287,10 +278,10 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 				if err == nil {
 					// for I_verify_them_by_certificate_they_verify_me_by_certificate
 					// PuTTY -load ngrokSSH user@host
-					forPutty(`SOFTWARE\SimonTatham\PuTTY\Sessions\`+id, name)
+					puttySession(`SOFTWARE\SimonTatham\PuTTY\Sessions\`+id, name)
 				}
 				// PuTTY user@host
-				forPutty(`SOFTWARE\SimonTatham\PuTTY\Sessions\Default%20Settings`, "")
+				puttySession(`SOFTWARE\SimonTatham\PuTTY\Sessions\Default%20Settings`, "")
 			}
 		}
 	}
@@ -334,53 +325,6 @@ func UserHomeDirs(dirs ...string) (s string) {
 	s = filepath.Join(dirs...)
 	os.MkdirAll(s, 0700)
 	return
-}
-
-// Пишем сертификат value в ветку реестра для putty клиента
-func forPutty(key, value string) {
-	rk, _, err := registry.CreateKey(registry.CURRENT_USER, key, registry.CREATE_SUB_KEY|registry.SET_VALUE)
-	if err != nil {
-		Println(err)
-	}
-	defer rk.Close()
-	if value != "" {
-		rk.SetStringValue("DetachedCertificate", value)
-	}
-	// Для удобства
-	rk.SetDWordValue("WarnOnClose", 0)
-	rk.SetDWordValue("FullScreenOnAltEnter", 1)
-}
-
-// Подключаемся к агенту
-func NewConn() (sock net.Conn, err error) {
-	const (
-		PIPE         = `\\.\pipe\`
-		sshAgentPipe = "openssh-ssh-agent"
-	)
-	// Get env "SSH_AUTH_SOCK" and connect.
-	sockPath := os.Getenv("SSH_AUTH_SOCK")
-	emptySockPath := len(sockPath) == 0
-
-	if emptySockPath {
-		sock, err = pageant.NewConn()
-	}
-
-	if err != nil && !emptySockPath {
-		// `sc query afunix` for some versions of Windows
-		sock, err = net.Dial("unix", sockPath)
-	}
-
-	if err != nil {
-		if emptySockPath {
-			sockPath = sshAgentPipe
-		}
-		if !strings.HasPrefix(sockPath, PIPE) {
-			sockPath = PIPE + sockPath
-		}
-		sock, err = winio.DialPipe(sockPath, nil)
-	}
-	return sock, err
-
 }
 
 func useLine(h, p, imag string) string {
@@ -434,4 +378,127 @@ func pp(key, val string, empty bool) string {
 		return ""
 	}
 	return " -" + key + strings.TrimRight(" "+val, " ")
+}
+
+// set Home of user
+func Home(s gl.Session) string {
+	u, err := user.Lookup(s.User())
+	if err != nil {
+		return "/nonexistent"
+	}
+	return u.HomeDir
+}
+
+// shell
+func ShArgs(s gl.Session) (args []string, cmdLine string) {
+	sh := "bash"
+	env := "SHELL"
+	win := runtime.GOOS == "windows"
+	if win {
+		sh = "cmd.exe"
+		env = "COMSPEC"
+	}
+	var err error
+	for _, shell := range []string{
+		os.Getenv(env),
+		sh,
+	} {
+		if cmdLine, err = exec.LookPath(shell); err == nil {
+			break
+		}
+	}
+	if err != nil {
+		cmdLine = sh
+	}
+	args = []string{cmdLine}
+	if s.RawCommand() != "" {
+		if win {
+			cmdLine = fmt.Sprintf(`%s /c %s`, quote(args[0]), quote(s.RawCommand()))
+			args = append(args, "/c")
+		} else {
+			cmdLine = fmt.Sprintf(`%s -c %s`, args[0], s.RawCommand())
+			args = append(args, "-c")
+		}
+		args = append(args, s.RawCommand())
+	}
+	return
+}
+
+func quote(s string) string {
+	if strings.Contains(s, " ") {
+		return fmt.Sprintf(`"%s"`, s)
+	}
+	return s
+}
+
+// for shell and exec
+func ShellOrExec(s gl.Session) {
+	RemoteAddr := s.RemoteAddr()
+	defer func() {
+		ltf.Println(RemoteAddr, "done")
+	}()
+
+	ptyReq, winCh, isPty := s.Pty()
+	if !isPty {
+		NoPTY(s)
+		return
+	}
+	// ssh -p 2222 a@127.0.0.1
+	// ssh -p 2222 a@127.0.0.1 -t commands
+	stdout, err := console.New(ptyReq.Window.Width, ptyReq.Window.Width)
+	if err != nil {
+		letf.Println("unable to create console", err)
+		NoPTY(s)
+		return
+	}
+	args, cmdLine := ShArgs(s)
+	// defer func() {
+	// 	ltf.Println(cmdLine, "done")
+	// 	if stdout != nil {
+	// 		stdout.Close()
+	// 		// stdout.Kill()
+	// 	}
+	// }()
+	stdout.SetCWD(Home(s))
+	stdout.SetENV(winssh.Env(s, args[0]))
+	err = stdout.Start(args)
+	if err != nil {
+		letf.Println("unable to start", cmdLine, err)
+		NoPTY(s)
+		return
+	}
+
+	SetConsoleTitle(s)
+	ppid, _ := stdout.Pid()
+	ltf.Println(cmdLine, ppid)
+	go func() {
+		for {
+			if stdout == nil || s == nil {
+				return
+			}
+			select {
+			case <-s.Context().Done():
+				stdout.Close()
+				return
+			case win := <-winCh:
+				ltf.Println("PTY SetSize", win)
+				if win.Height == 0 && win.Width == 0 {
+					stdout.Close()
+					return
+				}
+				if err := stdout.SetSize(win.Width, win.Height); err != nil {
+					letf.Println(err)
+				}
+			}
+		}
+	}()
+
+	go io.Copy(stdout, s)
+	go io.Copy(s, stdout)
+	ps, err := stdout.Wait()
+	ec := 0
+	if err == nil && ps != nil {
+		ec = ps.ExitCode()
+	}
+	ltf.Println(cmdLine, "done", err, ec)
 }
