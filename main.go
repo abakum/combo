@@ -68,84 +68,66 @@ var CA []byte // Ключ ЦС
 //go:embed VERSION
 var Ver string
 
-var (
-	Image,
-	Imag,
-	UserKnownHostsFile,
-	_ string
-
-	Ips            []string
-	Signer         gl.Signer
-	AuthorizedKeys []ssh.PublicKey
-	CertCheck      *ssh.CertChecker
-)
-
 func main() {
 	var (
-		err error
-		h   bool
+		h bool
 	)
 
 	Exe, err := os.Executable()
 	Fatal(err)
-	Image = filepath.Base(Exe)
-	Imag = strings.Split(Image, ".")[0]
+	image := filepath.Base(Exe)
+	imag := strings.Split(image, ".")[0]
 
-	Ips = interfaces()
-	Println(runtime.GOOS, runtime.GOARCH, Imag, Ver, Ips)
-	FatalOr("not connected - нет сети", len(Ips) == 0)
+	ips := ints()
+	Println(runtime.GOOS, runtime.GOARCH, imag, Ver, ips)
+	FatalOr("not connected - нет сети", len(ips) == 0)
 
 	key, err := x509.ParsePKCS8PrivateKey(CA)
 	Fatal(err)
 
-	Signer, err = ssh.NewSignerFromKey(key)
+	signer, err := ssh.NewSignerFromKey(key)
 	Fatal(err)
 
-	AuthorizedKeys = append(AuthorizedKeys, Signer.PublicKey())
+	authorizedKeys := FileToAuthorized(filepath.Join(UserHomeDirs(".ssh"), "authorized_keys"), signer.PublicKey())
+	getSigners(signer, imag, imag)
 
-	var Signers []ssh.Signer
-	Signers, UserKnownHostsFile = getSigners(Signer, Imag, Imag)
-	if len(Signers) < 3 {
-		Fatal(fmt.Errorf("no keys from agent - не получены ключи от агента %v", err))
-	}
-
-	HostKeyFallback, err := knownhosts.New(filepath.Join(UserHomeDirs(".ssh"), "known_hosts"))
+	hostKeyFallback, err := knownhosts.New(filepath.Join(UserHomeDirs(".ssh"), "known_hosts"))
 	if err != nil {
 		Println(err)
 	}
-	CertCheck = &ssh.CertChecker{
+	certCheck := &ssh.CertChecker{
 		IsHostAuthority: func(p ssh.PublicKey, addr string) bool {
-			return gl.KeysEqual(p, Signer.PublicKey())
+			return gl.KeysEqual(p, signer.PublicKey())
 		},
-		HostKeyFallback: HostKeyFallback,
+		HostKeyFallback: hostKeyFallback,
 	}
 
-	flag.BoolVar(&h, "h", h, fmt.Sprintf("show `help` for usage - показать использование параметров\nexample - пример `%s -h`", Image))
+	flag.BoolVar(&h, "h", h, fmt.Sprintf("show `help` for usage - показать использование параметров\nexample - пример `%s -h`", image))
 	flag.Parse()
 
 	if h {
-		fmt.Printf("Version %s of `%s [host[:port]] `\n", Ver, Image)
+		fmt.Printf("Version %s of `%s [host[:port]] `\n", Ver, image)
 		flag.PrintDefaults()
 		return
 	}
 
 	SetColor()
 
-	Hp := flag.Arg(0)
+	hp := flag.Arg(0)
 
-	Hp = net.JoinHostPort(SplitHostPort(Hp, LH, PORT))
+	hp = net.JoinHostPort(SplitHostPort(hp, LH, PORT))
 
 	defer closer.Close()
 	closer.Bind(cleanup)
 
 	for {
-		server(Hp)
+		server(hp, imag, image, use(hp, imag, ips...), signer, authorizedKeys, certCheck)
 		winssh.KidsDone(os.Getpid())
 		time.Sleep(TOR)
 	}
 }
 
-func interfaces() (ips []string) {
+func ints() (ips []string) {
 	ifaces, err := net.Interfaces()
 	if err == nil {
 		for _, ifac := range ifaces {
@@ -174,11 +156,20 @@ func FingerprintSHA256(pubKey ssh.PublicKey) string {
 	return pubKey.Type() + " " + ssh.FingerprintSHA256(pubKey)
 }
 
+// Время модификации
+func ModTime(name string) (unix int64) {
+	info, err := os.Stat(name)
+	if err == nil {
+		unix = info.ModTime().Unix()
+	}
+	return
+}
+
 // Возвращаем сигнеров от агента, и сертификаты от агента и самоподписанный сертификат ЦС.
 // Пишем ветку реестра SshHostCAs для putty клиента и файл UserKnownHostsFile для ssh клиента чтоб они доверяли хосту по сертификату от ЦС caSigner.
 // Если новый ключ ЦС (.ssh/ca.pub) или новый ключ от агента пишем сертификат в файл для ssh клиента и ссылку на него в реестр для putty клиента чтоб хост с ngrokSSH им доверял.
-// Если новый ключ ЦС пишем конфиги и сертифкаты для sshd от OpenSSH чтоб sshd доверял клиентам ngrokSSH, putty, ssh.
-func getSigners(caSigner ssh.Signer, id string, user string) (signers []ssh.Signer, userKnownHostsFile string) {
+// Если новый ключ ЦС пишем конфиги и сертифкаты для sshd от OpenSSH чтоб sshd доверял клиентам putty, ssh.
+func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers []ssh.Signer, userKnownHostsFile string) {
 	// разрешения для сертификата пользователя
 	var permits = make(map[string]string)
 	for _, permit := range []string{
@@ -207,7 +198,7 @@ func getSigners(caSigner ssh.Signer, id string, user string) (signers []ssh.Sign
 		Println(fmt.Errorf("no keys from agent - не получены ключи от агента %v", err))
 	}
 	sshUserDir := UserHomeDirs(".ssh")
-	userKnownHostsFile = filepath.Join(sshUserDir, "known_ca")
+	userKnownHostsFile = filepath.Join(sshUserDir, id)
 	newCA := false
 	for i, idSigner := range ss {
 		signers = append(signers, idSigner)
@@ -227,12 +218,13 @@ func getSigners(caSigner ssh.Signer, id string, user string) (signers []ssh.Sign
 		name := filepath.Join(sshUserDir, pref+".pub")
 		old, err := os.ReadFile(name)
 		newPub := err != nil || !bytes.Equal(data, old)
-		if i == 0 {
+		var mtCA int64
+		if i == 0 { // CA
 			newCA = newPub
 		}
 		if newPub {
 			Println(name, os.WriteFile(name, data, FILEMODE))
-			if i == 0 { // ca.pub know_ca idSigner is caSigner
+			if i == 0 { // ca.pub  idSigner is caSigner
 				bb := bytes.NewBufferString("@cert-authority * ")
 				bb.Write(data)
 				// пишем файл UserKnownHostsFile для ssh клиента чтоб он доверял хосту по сертификату ЦС caSigner
@@ -240,7 +232,7 @@ func getSigners(caSigner ssh.Signer, id string, user string) (signers []ssh.Sign
 				// for putty ...they_verify_me_by_certificate
 				// пишем ветку реестра SshHostCAs для putty клиента чтоб он доверял хосту по сертификату ЦС caSigner
 				rk, _, err := registry.CreateKey(registry.CURRENT_USER,
-					`SOFTWARE\SimonTatham\PuTTY\SshHostCAs\`+Imag,
+					`SOFTWARE\SimonTatham\PuTTY\SshHostCAs\`+id,
 					registry.CREATE_SUB_KEY|registry.SET_VALUE)
 				if err == nil {
 					rk.SetStringValue("PublicKey", strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())))
@@ -259,13 +251,13 @@ func getSigners(caSigner ssh.Signer, id string, user string) (signers []ssh.Sign
 		if err != nil {
 			continue
 		}
-		//ssh-keygen -s ca -I id -n user -V always:forever ~\.ssh\id_*.pub
+		//ssh-keygen -s ca -I id -n user -V forever ~\.ssh\id_*.pub
 		certificate := ssh.Certificate{
 			Key:             idSigner.PublicKey(),
 			CertType:        ssh.UserCert,
 			KeyId:           id,
 			ValidBefore:     ssh.CertTimeInfinity,
-			ValidPrincipals: []string{user},
+			ValidPrincipals: principals,
 			Permissions:     ssh.Permissions{Extensions: permits},
 		}
 		if certificate.SignCert(rand.Reader, mas) != nil {
@@ -279,9 +271,13 @@ func getSigners(caSigner ssh.Signer, id string, user string) (signers []ssh.Sign
 		// добавляем сертификат в слайс результата signers
 		signers = append(signers, certSigner)
 
-		if newCA || newPub {
-			//если новый ключ ЦС или новый ключ от агента пишем сертификат в файл для ssh клиента и ссылку на него в реестр для putty клиента
-			name = filepath.Join(sshUserDir, pref+"-cert.pub")
+		if i == 0 { // CA
+			mtCA = ModTime(name)
+		}
+
+		//если новый ключ ЦС или новый ключ от агента пишем сертификат в файл для ssh клиента и ссылку на него в реестр для putty клиента
+		name = filepath.Join(sshUserDir, pref+"-cert.pub")
+		if newCA || newPub || mtCA > ModTime(name) {
 			err = os.WriteFile(name,
 				ssh.MarshalAuthorizedKey(&certificate),
 				FILEMODE)
@@ -291,7 +287,7 @@ func getSigners(caSigner ssh.Signer, id string, user string) (signers []ssh.Sign
 				if err == nil {
 					// for I_verify_them_by_certificate_they_verify_me_by_certificate
 					// PuTTY -load ngrokSSH user@host
-					forPutty(`SOFTWARE\SimonTatham\PuTTY\Sessions\`+Imag, name)
+					forPutty(`SOFTWARE\SimonTatham\PuTTY\Sessions\`+id, name)
 				}
 				// PuTTY user@host
 				forPutty(`SOFTWARE\SimonTatham\PuTTY\Sessions\Default%20Settings`, "")
@@ -340,15 +336,15 @@ func UserHomeDirs(dirs ...string) (s string) {
 	return
 }
 
-// Пишем сертификат name в ветку реестра для putty клиента
-func forPutty(key, name string) {
+// Пишем сертификат value в ветку реестра для putty клиента
+func forPutty(key, value string) {
 	rk, _, err := registry.CreateKey(registry.CURRENT_USER, key, registry.CREATE_SUB_KEY|registry.SET_VALUE)
 	if err != nil {
 		Println(err)
 	}
 	defer rk.Close()
-	if name != "" {
-		rk.SetStringValue("DetachedCertificate", name)
+	if value != "" {
+		rk.SetStringValue("DetachedCertificate", value)
 	}
 	// Для удобства
 	rk.SetDWordValue("WarnOnClose", 0)
@@ -385,4 +381,57 @@ func NewConn() (sock net.Conn, err error) {
 	}
 	return sock, err
 
+}
+
+func useLine(h, p, imag string) string {
+	return fmt.Sprintf(
+		"\n\t`ssh -o UserKnownHostsFile=~/.ssh/%s %s@%s%s`"+
+			"\n\t`PuTTY -load %s %s@%s%s`",
+		imag, userName(), h, pp("p", p, p == PORT),
+		imag, userName(), h, pp("P", p, p == PORT),
+	)
+}
+
+// Как запускать клиентов
+func use(hp, imag string, ips ...string) (s string) {
+	h, p, _ := net.SplitHostPort(hp)
+	s = useLine(h, p, imag)
+	if h != ALL {
+		return
+	}
+	s = ""
+	for _, h := range ips {
+		s += useLine(h, p, imag)
+	}
+	return
+}
+
+// Читаю name и добавляю замки из in в authorized
+func FileToAuthorized(name string, in ...ssh.PublicKey) (authorized []ssh.PublicKey) {
+	authorizedKeysMap := map[string]ssh.PublicKey{}
+	for _, pubKey := range in {
+		authorizedKeysMap[string(pubKey.Marshal())] = pubKey
+	}
+	authorizedKeysBytes, err := os.ReadFile(name)
+	if err == nil {
+		for len(authorizedKeysBytes) > 0 {
+			pubKey, _, _, rest, err := ssh.ParseAuthorizedKey(authorizedKeysBytes)
+			if err == nil {
+				authorizedKeysMap[string(pubKey.Marshal())] = pubKey
+				authorizedKeysBytes = rest
+			}
+		}
+	}
+	for _, pubKey := range authorizedKeysMap {
+		authorized = append(authorized, pubKey)
+	}
+	return
+}
+
+// Если empty то пусто иначе -key val
+func pp(key, val string, empty bool) string {
+	if empty {
+		return ""
+	}
+	return " -" + key + strings.TrimRight(" "+val, " ")
 }

@@ -22,12 +22,12 @@ func userName() string {
 	return os.Getenv("USERNAME")
 }
 
-func banner() string {
+func banner(imag string) string {
 	goos := runtime.GOOS
 	majorVersion, minorVersion, buildNumber := windows.RtlGetNtVersionNumbers()
 	goos = fmt.Sprintf("%s_%d.%d.%d", goos, majorVersion, minorVersion, buildNumber)
 	return strings.Join([]string{
-		Imag,
+		imag,
 		Ver,
 		goos,
 	}, "_")
@@ -38,9 +38,6 @@ func ShellOrExec(s gl.Session) {
 	RemoteAddr := s.RemoteAddr()
 	defer func() {
 		ltf.Println(RemoteAddr, "done")
-		// if s != nil {
-		// 	s.Exit(0)
-		// }
 	}()
 
 	ptyReq, winCh, isPty := s.Pty()
@@ -56,9 +53,9 @@ func ShellOrExec(s gl.Session) {
 		NoPTY(s)
 		return
 	}
-	args := ShArgs(s)
+	args, cmdLine := ShArgs(s)
 	defer func() {
-		ltf.Println(args, "done")
+		ltf.Println(cmdLine, "done")
 		if stdout != nil {
 			// stdout.Close()
 			stdout.Kill()
@@ -68,13 +65,14 @@ func ShellOrExec(s gl.Session) {
 	stdout.SetENV(winssh.Env(s, args[0]))
 	err = stdout.Start(args)
 	if err != nil {
-		letf.Println("unable to start", args, err)
+		letf.Println("unable to start", cmdLine, err)
 		NoPTY(s)
 		return
 	}
 
+	SetConsoleTitle(s)
 	ppid, _ := stdout.Pid()
-	ltf.Println(args, ppid)
+	ltf.Println(cmdLine, ppid)
 	go func() {
 		for {
 			if stdout == nil || s == nil {
@@ -101,17 +99,22 @@ func ShellOrExec(s gl.Session) {
 	io.Copy(s, stdout)
 }
 
+func quote(s string) string {
+	if strings.Contains(s, " ") {
+		return fmt.Sprintf(`"%s"`, s)
+	}
+	return s
+}
+
 // `ssh -p 2222 a@127.0.0.1 command`
 // `ssh -p 2222 a@127.0.0.1 -T`
 func NoPTY(s gl.Session) {
-	args := ShArgs(s)
+	args, cmdLine := ShArgs(s)
 	e := winssh.Env(s, args[0])
 
 	// cmd := exec.Command(args[0], args[1:]...)
 	cmd := exec.Command(args[0])
-
-	CmdLine := fmt.Sprintf(`"%s" /c "%s"`, cmd.Args[0], s.RawCommand())
-	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: CmdLine}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: cmdLine}
 	cmd.Dir = winssh.Home(s)
 	cmd.Env = append(os.Environ(), e...)
 	stdout, err := cmd.StdoutPipe()
@@ -130,11 +133,11 @@ func NoPTY(s gl.Session) {
 
 	err = cmd.Start()
 	if err != nil {
-		letf.Println("could not start", CmdLine, err)
+		letf.Println("could not start", cmdLine, err)
 		return
 	}
 	ppid := cmd.Process.Pid
-	ltf.Println(CmdLine, ppid)
+	ltf.Println(cmdLine, ppid)
 
 	go func() {
 		<-s.Context().Done()
@@ -142,31 +145,30 @@ func NoPTY(s gl.Session) {
 	}()
 
 	go io.Copy(stdin, s)
-	io.Copy(s, stdout)
-	ltf.Println(CmdLine, "done")
+	go io.Copy(s, stdout)
+	ltf.Println(cmdLine, "done", cmd.Wait())
 }
 
 // cmd as shell
-func ShArgs(s gl.Session) (args []string) {
+func ShArgs(s gl.Session) (args []string, cmdLine string) {
 	const SH = "cmd.exe"
-	path := ""
 	var err error
 	for _, shell := range []string{
 		os.Getenv("ComSpec"),
 		SH,
 	} {
-		if path, err = exec.LookPath(shell); err == nil {
+		if cmdLine, err = exec.LookPath(shell); err == nil {
 			break
 		}
 	}
 	if err != nil {
-		path = SH
-		return
+		cmdLine = SH
 	}
-	args = []string{path}
+	args = []string{cmdLine}
 	if s.RawCommand() != "" {
 		args = append(args, "/c")
 		args = append(args, s.RawCommand())
+		cmdLine = fmt.Sprintf(`%s /c %s`, quote(args[0]), quote(s.RawCommand()))
 	}
 	return
 }

@@ -13,10 +13,10 @@ func userName() string {
 	return os.Getenv("USER")
 }
 
-func banner() string {
+func banner(imag string) string {
 	goos := runtime.GOOS
 	return strings.Join([]string{
-		Imag,
+		imag,
 		Ver,
 		goos,
 	}, "_")

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log"
-	"net"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,15 +16,21 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// sshd
-func server(Hp string) {
+// Сервер sshd.
+// hp хост:порт,
+// imag имя в сертификате,
+// image имя исполняемого файла,
+// signer ключ ЦС,
+// authorizedKeys ключи разрешённых пользователей,
+// CertCheck имя разрешённого пользователя в сертификате.
+func server(hp, imag, image, use string, signer ssh.Signer, authorizedKeys []ssh.PublicKey, certCheck *ssh.CertChecker) {
 	ctxRWE, caRW := context.WithCancel(context.Background())
 	defer caRW()
 
 	ForwardedTCPHandler := &gl.ForwardedTCPHandler{}
 
 	server := gl.Server{
-		Addr: Hp,
+		Addr: hp,
 		// next for ssh -R host:port:x:x
 		ReversePortForwardingCallback: gl.ReversePortForwardingCallback(func(ctx gl.Context, host string, port uint32) bool {
 			li.Println("Attempt to bind - Начать слушать", host, port, "granted - позволено")
@@ -55,19 +60,19 @@ func server(Hp string) {
 		SessionRequestCallback: SessionRequestCallback,
 		// IdleTimeout:            -time.Second * 100, // send `keepalive` every 100 seconds
 		// MaxTimeout:             -time.Second * 300, // сlosing the session after 300 seconds with no response
-		Version: banner(),
+		Version: banner(imag),
 	}
 
 	// next for server key
 	// server.AddHostKey(Signer)
-	server.AddHostKey(certSigner(Signer, Signer, Imag)) //selfsigned ca
+	server.AddHostKey(certSigner(signer, signer, imag)) //selfsigned ca
 	// before for server key
 
 	// next for client keys
 	publicKeyOption := gl.PublicKeyAuth(func(ctx gl.Context, key gl.PublicKey) bool {
 		Println("User", ctx.User(), "from", ctx.RemoteAddr())
 		Println("key", FingerprintSHA256(key))
-		if Authorized(key, AuthorizedKeys) {
+		if Authorized(key, authorizedKeys) {
 			return true
 		}
 
@@ -80,11 +85,11 @@ func server(Hp string) {
 			Println(fmt.Errorf("ssh: cert has type %d", cert.CertType))
 			return false
 		}
-		if !gl.KeysEqual(cert.SignatureKey, Signer.PublicKey()) {
+		if !gl.KeysEqual(cert.SignatureKey, signer.PublicKey()) {
 			Println(fmt.Errorf("ssh: certificate signed by unrecognized authority %s", FingerprintSHA256(cert.SignatureKey)))
 			return false
 		}
-		if err := CertCheck.CheckCert(Imag, cert); err != nil { //ctx.User()
+		if err := certCheck.CheckCert(imag, cert); err != nil { //ctx.User()
 			Println(err)
 			return false
 		}
@@ -104,30 +109,23 @@ func server(Hp string) {
 		if len(s.Command()) > 1 {
 			base := filepath.Base(s.Command()[0])
 			bas := strings.Split(base, ".")[0]
-			if strings.EqualFold(bas, Imag) && s.Command()[1] == CGIR {
+			if strings.EqualFold(bas, imag) && s.Command()[1] == CGIR {
 				caRW()
 			}
-		}
-		if !strings.Contains(clientVersion, OSSH) {
-			// Not for OpenSSH
-			time.AfterFunc(time.Millisecond*333, func() {
-				title := SetConsoleTitle(CutSSH2(s.Context().ClientVersion()) + "@" + CutSSH2(s.Context().ServerVersion()))
-				s.Write([]byte(title))
-			})
 		}
 		// winssh.ShellOrExec(s)
 		ShellOrExec(s)
 	})
 
-	li.Printf("%s daemon waiting on - сервер ожидает на %s\n", Image, Hp)
-	li.Println("to connect use - чтоб подключится используй", use(Hp))
+	li.Printf("%s daemon waiting on - сервер ожидает на %s\n", image, hp)
+	li.Println("to connect use - чтоб подключится используй", use)
 
 	go func() {
-		watch(ctxRWE, caRW, Hp)
+		watch(ctxRWE, caRW, hp)
 		ltf.Println("local done")
 		server.Close()
 	}()
-	go established(ctxRWE, Image)
+	go established(ctxRWE, image)
 	Println("ListenAndServe", server.ListenAndServe())
 }
 
@@ -162,27 +160,18 @@ func CutSSH2(s string) string {
 }
 
 // Меняю заголовок окна у клиента
-func SetConsoleTitle(s string) string {
-	return fmt.Sprintf("%c]0;%s%c", ansiterm.ANSI_ESCAPE_PRIMARY, s, ansiterm.ANSI_BEL)
+func SetConsoleTitle(s gl.Session) {
+	clientVersion := s.Context().ClientVersion()
+	if s.RawCommand() == "" && !strings.Contains(clientVersion, OSSH) {
+		// Not for OpenSSH_for_Windows
+		time.AfterFunc(time.Millisecond*333, func() {
+			title := fmt.Sprintf("%c]0;%s%c", ansiterm.ANSI_ESCAPE_PRIMARY, CutSSH2(clientVersion)+"@"+CutSSH2(s.Context().ServerVersion()), ansiterm.ANSI_BEL)
+			s.Write([]byte(title))
+		})
+	}
 }
 
-// Как запустить клиента
-func use(hp string) (s string) {
-	h, p, _ := net.SplitHostPort(hp)
-	if p == PORT {
-		p = ""
-	}
-	if h != ALL {
-		return fmt.Sprintf("`ssh %s -o UserKnownHostsFile=%s`", strings.Trim(userName()+"@"+net.JoinHostPort(h, p), " :"), UserKnownHostsFile)
-	}
-	s = ""
-	for _, h := range Ips {
-		s += fmt.Sprintf("\n\t`ssh %s -o UserKnownHostsFile=%s`", strings.Trim(userName()+"@"+net.JoinHostPort(h, p), " :"), UserKnownHostsFile)
-	}
-	return
-}
-
-// call ca() and return on `Service has been discontinued`
+// call ca() and return on `Service has been stopped`
 func watch(ctx context.Context, ca context.CancelFunc, dest string) {
 	if strings.HasPrefix(dest, ":") {
 		dest = ALL + dest
