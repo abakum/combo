@@ -28,7 +28,7 @@ import (
 	"github.com/abakum/embed-encrypt/encryptedfs"
 	"github.com/abakum/menu"
 	"github.com/abakum/pageant"
-	"github.com/mitchellh/go-ps"
+	"github.com/abakum/winssh"
 
 	version "github.com/abakum/version/lib"
 	gl "github.com/gliderlabs/ssh"
@@ -119,8 +119,7 @@ func main() {
 
 	for {
 		server(hp, imag, use(hp, imag, ips...), signer, authorizedKeys, certCheck)
-		// winssh.KidsDone(os.Getpid())
-		KidsDone(os.Getpid())
+		winssh.KidsDone(os.Getpid())
 		time.Sleep(TOR)
 	}
 }
@@ -149,9 +148,7 @@ func cleanup() {
 	if runtime.GOOS == "windows" {
 		menu.PressAnyKey("Press any key - Нажмите любую клавишу", TOW)
 	}
-	KidsDone(os.Getpid())
-	// PidDone(os.Getpid())
-	// winssh.AllDone(os.Getpid())
+	winssh.KidsDone(os.Getpid())
 }
 
 func FingerprintSHA256(pubKey ssh.PublicKey) string {
@@ -377,31 +374,4 @@ func pp(key, val string, empty bool) string {
 		return ""
 	}
 	return " -" + key + strings.TrimRight(" "+val, " ")
-}
-
-func PidDone(pid int) {
-	Process, err := os.FindProcess(pid)
-	if err == nil {
-		ltf.Println("pid", pid, "done", Process.Kill())
-		return
-	}
-	ltf.Println("pid", pid, err)
-}
-
-func KidsDone(ppid int) {
-	if ppid < 1 {
-		return
-	}
-	pes, err := ps.Processes()
-	if err != nil {
-		return
-	}
-	for _, p := range pes {
-		if p == nil {
-			continue
-		}
-		if p.PPid() == ppid && p.Pid() != ppid {
-			PidDone(p.Pid())
-		}
-	}
 }
