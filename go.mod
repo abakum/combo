@@ -5,6 +5,7 @@ go 1.21.4
 replace internal/tool => ./internal/tool
 
 // replace github.com/abakum/winssh => ../winssh
+// replace github.com/abakum/go-netstat => ../go-netstat
 
 replace github.com/ThalesIgnite/crypto11 v1.2.5 => github.com/blacknon/crypto11 v1.2.6
 

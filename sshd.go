@@ -251,11 +251,7 @@ func netSt(accept netstat.AcceptFn) (i int, s string) {
 		return
 	}
 	for _, tab := range tabs {
-		image := ""
-		if tab.Process != nil {
-			image = tab.Process.String()
-		}
-		s += fmt.Sprintf("\t%s %s %s %s", tab.LocalAddr, tab.RemoteAddr, tab.State, image)
+		s += "\t" + tab.String()
 	}
 	i = len(tabs)
 	return
