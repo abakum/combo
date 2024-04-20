@@ -5,6 +5,7 @@ go 1.21.4
 replace internal/tool => ./internal/tool
 
 // replace github.com/abakum/winssh => ../winssh
+
 // replace github.com/abakum/go-netstat => ../go-netstat
 
 replace github.com/ThalesIgnite/crypto11 v1.2.5 => github.com/blacknon/crypto11 v1.2.6
@@ -18,6 +19,7 @@ require (
 	github.com/abakum/version v0.1.3-lw
 	github.com/abakum/winssh v0.0.0-20240419214554-f3adaa7ad3d8
 	github.com/gliderlabs/ssh v0.3.7
+	github.com/mitchellh/go-ps v1.0.0
 	github.com/xlab/closer v1.1.0
 	golang.org/x/crypto v0.19.0
 	golang.org/x/sys v0.18.0
@@ -26,7 +28,7 @@ require (
 
 require (
 	github.com/Microsoft/go-winio v0.6.1 // indirect
-	github.com/abakum/go-console v0.0.0-20240401135801-ff2ca721c6ad // indirect
+	github.com/abakum/go-console v0.0.0-20240419214251-0976f7fafdaf // indirect
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/creack/pty v1.1.21 // indirect
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203 // indirect
@@ -35,7 +37,6 @@ require (
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/pkg/sftp v1.13.6 // indirect
 	golang.org/x/mod v0.14.0 // indirect
 	golang.org/x/tools v0.16.0 // indirect
