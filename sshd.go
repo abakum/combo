@@ -19,11 +19,10 @@ import (
 // Сервер sshd.
 // hp хост:порт,
 // imag имя в сертификате,
-// image имя исполняемого файла,
 // signer ключ ЦС,
 // authorizedKeys ключи разрешённых пользователей,
 // CertCheck имя разрешённого пользователя в сертификате.
-func server(hp, imag, image, use string, signer ssh.Signer, authorizedKeys []ssh.PublicKey, certCheck *ssh.CertChecker) {
+func server(hp, imag, use string, signer ssh.Signer, authorizedKeys []ssh.PublicKey, certCheck *ssh.CertChecker) {
 	ctxRWE, caRW := context.WithCancel(context.Background())
 	defer caRW()
 
@@ -113,11 +112,10 @@ func server(hp, imag, image, use string, signer ssh.Signer, authorizedKeys []ssh
 				caRW()
 			}
 		}
-		// winssh.ShellOrExec(s)
-		ShellOrExec(s)
+		winssh.ShellOrExec(s)
 	})
 
-	li.Printf("%s daemon waiting on - сервер ожидает на %s\n", image, hp)
+	li.Printf("%s daemon waiting on - сервер ожидает на %s\n", imag, hp)
 	li.Println("to connect use - чтоб подключится используй", use)
 
 	go func() {
@@ -125,7 +123,7 @@ func server(hp, imag, image, use string, signer ssh.Signer, authorizedKeys []ssh
 		ltf.Println("local done")
 		server.Close()
 	}()
-	go established(ctxRWE, image)
+	go established(ctxRWE, hp)
 	Println("ListenAndServe", server.ListenAndServe())
 }
 
@@ -183,13 +181,8 @@ func watch(ctx context.Context, ca context.CancelFunc, dest string) {
 	for {
 		select {
 		case <-t.C:
-			ste := ""
-			new := netSt(func(s *netstat.SockTabEntry) bool {
-				ok := s.State == netstat.Listen && s.LocalAddr.String() == dest
-				if ok {
-					ste += fmt.Sprintln("\t", s.LocalAddr, s.State)
-				}
-				return ok
+			new, ste := netSt(func(s *netstat.SockTabEntry) bool {
+				return s.State == netstat.Listen && s.LocalAddr.String() == dest
 			})
 			if new == 0 {
 				lt.Print("The service has been stopped - Служба остановлена\n\t", dest)
@@ -217,7 +210,7 @@ func watch(ctx context.Context, ca context.CancelFunc, dest string) {
 }
 
 // Что там с портами imagename
-func established(ctx context.Context, imagename string) {
+func established(ctx context.Context, dest string) {
 	old := 0
 	ste_ := ""
 	t := time.NewTicker(TOW)
@@ -225,44 +218,47 @@ func established(ctx context.Context, imagename string) {
 	for {
 		select {
 		case <-t.C:
-			ste := ""
-			new := netSt(func(s *netstat.SockTabEntry) bool {
-				ok := s.Process != nil && s.Process.Name == imagename && s.State == netstat.Established
-				if ok {
-					ste += fmt.Sprintln("\t", s.LocalAddr, s.RemoteAddr, s.State)
-				}
-				return ok
+			new, ste := netSt(func(s *netstat.SockTabEntry) bool {
+				return s.State == netstat.Established && s.LocalAddr.String() == dest
 			})
 			if old != new {
 				switch {
 				case new == 0:
-					lt.Println(imagename, "There are no connections - Нет подключений")
+					lt.Println(dest, "There are no connections - Нет подключений")
 				case old > new:
-					lt.Print(imagename, " Connections have decreased - Подключений уменьшилось\n", ste)
+					lt.Print(dest, " Connections have decreased - Подключений уменьшилось\n", ste)
 				default:
-					lt.Print(imagename, " Connections have increased - Подключений увеличилось\n", ste)
+					lt.Print(dest, " Connections have increased - Подключений увеличилось\n", ste)
 				}
 				ste_ = ste
 				old = new
 			}
 			if ste_ != ste {
-				lt.Print(imagename, " Сonnections have changed - Подключения изменились\n", ste)
+				lt.Print(dest, " Сonnections have changed - Подключения изменились\n", ste)
 				ste_ = ste
 			}
 		case <-ctx.Done():
-			Println("established", imagename, "done")
+			Println("established", dest, "done")
 			return
 		}
 	}
 }
 
 // func(s *netstat.SockTabEntry) bool {return s.State == a}
-func netSt(accept netstat.AcceptFn) int {
+func netSt(accept netstat.AcceptFn) (i int, s string) {
 	tabs, err := netstat.TCPSocks(accept)
 	if err != nil {
-		return 0
+		return
 	}
-	return len(tabs)
+	for _, tab := range tabs {
+		image := ""
+		if tab.Process != nil {
+			image = tab.Process.String()
+		}
+		s += fmt.Sprintf("\t%s %s %s %s", tab.LocalAddr, tab.RemoteAddr, tab.State, image)
+	}
+	i = len(tabs)
+	return
 }
 
 // logging sessions

@@ -16,11 +16,8 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
-	"io"
 	"net"
 	"os"
-	"os/exec"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -29,7 +26,6 @@ import (
 	"time"
 
 	"github.com/abakum/embed-encrypt/encryptedfs"
-	"github.com/abakum/go-console"
 	"github.com/abakum/menu"
 	"github.com/abakum/pageant"
 
@@ -78,8 +74,7 @@ func main() {
 
 	Exe, err := os.Executable()
 	Fatal(err)
-	image := filepath.Base(Exe)
-	imag := strings.Split(image, ".")[0]
+	imag := strings.Split(filepath.Base(Exe), ".")[0]
 
 	ips := ints()
 	Println(runtime.GOOS, runtime.GOARCH, imag, Ver, ips)
@@ -105,11 +100,11 @@ func main() {
 		HostKeyFallback: hostKeyFallback,
 	}
 
-	flag.BoolVar(&h, "h", h, fmt.Sprintf("show `help` for usage - показать использование параметров\nexample - пример `%s -h`", image))
+	flag.BoolVar(&h, "h", h, fmt.Sprintf("show `help` for usage - показать использование параметров\nexample - пример `%s -h`", imag))
 	flag.Parse()
 
 	if h {
-		fmt.Printf("Version %s of `%s [host[:port]] `\n", Ver, image)
+		fmt.Printf("Version %s of `%s [host[:port]] `\n", Ver, imag)
 		flag.PrintDefaults()
 		return
 	}
@@ -124,7 +119,7 @@ func main() {
 	closer.Bind(cleanup)
 
 	for {
-		server(hp, imag, image, use(hp, imag, ips...), signer, authorizedKeys, certCheck)
+		server(hp, imag, use(hp, imag, ips...), signer, authorizedKeys, certCheck)
 		winssh.KidsDone(os.Getpid())
 		time.Sleep(TOR)
 	}
@@ -151,7 +146,9 @@ func ints() (ips []string) {
 }
 
 func cleanup() {
-	menu.PressAnyKey("Press any key - Нажмите любую клавишу", TOW)
+	if runtime.GOOS == "windows" {
+		menu.PressAnyKey("Press any key - Нажмите любую клавишу", TOW)
+	}
 	winssh.AllDone(os.Getpid())
 }
 
@@ -378,127 +375,4 @@ func pp(key, val string, empty bool) string {
 		return ""
 	}
 	return " -" + key + strings.TrimRight(" "+val, " ")
-}
-
-// set Home of user
-func Home(s gl.Session) string {
-	u, err := user.Lookup(s.User())
-	if err != nil {
-		return "/nonexistent"
-	}
-	return u.HomeDir
-}
-
-// shell
-func ShArgs(s gl.Session) (args []string, cmdLine string) {
-	sh := "bash"
-	env := "SHELL"
-	win := runtime.GOOS == "windows"
-	if win {
-		sh = "cmd.exe"
-		env = "COMSPEC"
-	}
-	var err error
-	for _, shell := range []string{
-		os.Getenv(env),
-		sh,
-	} {
-		if cmdLine, err = exec.LookPath(shell); err == nil {
-			break
-		}
-	}
-	if err != nil {
-		cmdLine = sh
-	}
-	args = []string{cmdLine}
-	if s.RawCommand() != "" {
-		if win {
-			cmdLine = fmt.Sprintf(`%s /c %s`, quote(args[0]), quote(s.RawCommand()))
-			args = append(args, "/c")
-		} else {
-			cmdLine = fmt.Sprintf(`%s -c %s`, args[0], s.RawCommand())
-			args = append(args, "-c")
-		}
-		args = append(args, s.RawCommand())
-	}
-	return
-}
-
-func quote(s string) string {
-	if strings.Contains(s, " ") {
-		return fmt.Sprintf(`"%s"`, s)
-	}
-	return s
-}
-
-// for shell and exec
-func ShellOrExec(s gl.Session) {
-	RemoteAddr := s.RemoteAddr()
-	defer func() {
-		ltf.Println(RemoteAddr, "done")
-	}()
-
-	ptyReq, winCh, isPty := s.Pty()
-	if !isPty {
-		NoPTY(s)
-		return
-	}
-	// ssh -p 2222 a@127.0.0.1
-	// ssh -p 2222 a@127.0.0.1 -t commands
-	stdout, err := console.New(ptyReq.Window.Width, ptyReq.Window.Width)
-	if err != nil {
-		letf.Println("unable to create console", err)
-		NoPTY(s)
-		return
-	}
-	args, cmdLine := ShArgs(s)
-	// defer func() {
-	// 	ltf.Println(cmdLine, "done")
-	// 	if stdout != nil {
-	// 		stdout.Close()
-	// 		// stdout.Kill()
-	// 	}
-	// }()
-	stdout.SetCWD(Home(s))
-	stdout.SetENV(winssh.Env(s, args[0]))
-	err = stdout.Start(args)
-	if err != nil {
-		letf.Println("unable to start", cmdLine, err)
-		NoPTY(s)
-		return
-	}
-
-	SetConsoleTitle(s)
-	ppid, _ := stdout.Pid()
-	ltf.Println(cmdLine, ppid)
-	go func() {
-		for {
-			if stdout == nil || s == nil {
-				return
-			}
-			select {
-			case <-s.Context().Done():
-				stdout.Close()
-				return
-			case win := <-winCh:
-				ltf.Println("PTY SetSize", win)
-				if win.Height == 0 && win.Width == 0 {
-					stdout.Close()
-					return
-				}
-				if err := stdout.SetSize(win.Width, win.Height); err != nil {
-					letf.Println(err)
-				}
-			}
-		}
-	}()
-
-	go io.Copy(stdout, s)
-	go io.Copy(s, stdout)
-	ps, err := stdout.Wait()
-	ec := 0
-	if err == nil && ps != nil {
-		ec = ps.ExitCode()
-	}
-	ltf.Println(cmdLine, "done", err, ec)
 }

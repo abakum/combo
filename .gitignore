@@ -23,3 +23,4 @@ go.work
 internal
 encrypted_fs.go
 *.enc
+combo
