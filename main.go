@@ -236,7 +236,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 				Println(userKnownHostsFile, os.WriteFile(userKnownHostsFile, bb.Bytes(), FILEMODE))
 				// for putty ...they_verify_me_by_certificate
 				// пишем ветку реестра SshHostCAs для putty клиента чтоб он доверял хосту по сертификату ЦС caSigner
-				puttyHostCA(id, data, pub)
+				puttyHostCA(id, strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())))
 			}
 		}
 		mas, err := ssh.NewSignerWithAlgorithms(caSigner.(ssh.AlgorithmSigner),

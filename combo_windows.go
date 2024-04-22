@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strings"
 
-	"golang.org/x/crypto/ssh"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -32,33 +31,28 @@ func banner(imag string) string {
 
 // Пишем сертификат value в ветку реестра для putty клиента
 func puttySession(key, value string) {
-	key = filepath.Join(PuTTY, Sessions, key)
-	letf.Println(key)
-	return
 	rk, _, err := registry.CreateKey(registry.CURRENT_USER,
-		key,
-		registry.CREATE_SUB_KEY|registry.SET_VALUE)
-	if err != nil {
-		Println(err)
-	}
-	defer rk.Close()
-	if value != "" {
-		rk.SetStringValue("DetachedCertificate", value)
-	}
-	// Для удобства
-	rk.SetDWordValue("WarnOnClose", 0)
-	rk.SetDWordValue("FullScreenOnAltEnter", 1)
-}
-
-func puttyHostCA(key string, data []byte, pub ssh.PublicKey) {
-	key = filepath.Join(PuTTY, SshHostCAs, key)
-	letf.Println(key)
-	return
-	rk, _, err := registry.CreateKey(registry.CURRENT_USER,
-		key,
+		filepath.Join(PuTTY, Sessions, key),
 		registry.CREATE_SUB_KEY|registry.SET_VALUE)
 	if err == nil {
-		rk.SetStringValue("PublicKey", strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())))
+		if value != "" {
+			rk.SetStringValue("DetachedCertificate", value)
+		}
+		// Для удобства
+		rk.SetDWordValue("WarnOnClose", 0)
+		rk.SetDWordValue("FullScreenOnAltEnter", 1)
+		rk.Close()
+	} else {
+		Println(err)
+	}
+}
+
+func puttyHostCA(key, value string) {
+	rk, _, err := registry.CreateKey(registry.CURRENT_USER,
+		filepath.Join(PuTTY, SshHostCAs, key),
+		registry.CREATE_SUB_KEY|registry.SET_VALUE)
+	if err == nil {
+		rk.SetStringValue("PublicKey", value)
 		rk.SetStringValue("Validity", "*")
 		rk.SetDWordValue("PermitRSASHA1", 0)
 		rk.SetDWordValue("PermitRSASHA256", 1)

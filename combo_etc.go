@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/magiconair/properties"
-	"golang.org/x/crypto/ssh"
 )
 
 func userName() string {
@@ -53,7 +52,7 @@ func puttySession(key, value string) {
 	f.Chmod(0644)
 }
 
-func puttyHostCA(key string, data []byte, pub ssh.PublicKey) {
+func puttyHostCA(key, value string) {
 	dir := path.Join(UserHomeDirs(".putty"), SshHostCAs)
 	os.MkdirAll(dir, 0755)
 	name := path.Join(dir, key)
@@ -62,7 +61,7 @@ func puttyHostCA(key string, data []byte, pub ssh.PublicKey) {
 		Println(err)
 		p = properties.NewProperties()
 	}
-	p.SetValue("PublicKey", strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())))
+	p.SetValue("PublicKey", value)
 	p.SetValue("Validity", "*")
 	p.SetValue("PermitRSASHA1", 0)
 	p.SetValue("PermitRSASHA256", 1)
