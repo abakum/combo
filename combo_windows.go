@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -31,7 +32,12 @@ func banner(imag string) string {
 
 // Пишем сертификат value в ветку реестра для putty клиента
 func puttySession(key, value string) {
-	rk, _, err := registry.CreateKey(registry.CURRENT_USER, key, registry.CREATE_SUB_KEY|registry.SET_VALUE)
+	key = filepath.Join(PuTTY, Sessions, key)
+	letf.Println(key)
+	return
+	rk, _, err := registry.CreateKey(registry.CURRENT_USER,
+		key,
+		registry.CREATE_SUB_KEY|registry.SET_VALUE)
 	if err != nil {
 		Println(err)
 	}
@@ -44,9 +50,12 @@ func puttySession(key, value string) {
 	rk.SetDWordValue("FullScreenOnAltEnter", 1)
 }
 
-func puttyHostCA(id string, data []byte, pub ssh.PublicKey) {
+func puttyHostCA(key string, data []byte, pub ssh.PublicKey) {
+	key = filepath.Join(PuTTY, SshHostCAs, key)
+	letf.Println(key)
+	return
 	rk, _, err := registry.CreateKey(registry.CURRENT_USER,
-		`SOFTWARE\SimonTatham\PuTTY\SshHostCAs\`+id,
+		key,
 		registry.CREATE_SUB_KEY|registry.SET_VALUE)
 	if err == nil {
 		rk.SetStringValue("PublicKey", strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())))

@@ -34,6 +34,7 @@ require (
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/iamacarpet/go-winpty v1.0.4 // indirect
 	github.com/kr/fs v0.1.0 // indirect
+	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect

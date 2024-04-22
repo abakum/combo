@@ -38,6 +38,12 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+const (
+	Sessions   = "Sessions"
+	SshHostCAs = "SshHostCAs"
+	PuTTY      = `SOFTWARE\SimonTatham\PuTTY`
+)
+
 var (
 	_ = encryptedfs.ENC
 	_ = version.Ver
@@ -274,10 +280,10 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 				if err == nil {
 					// for I_verify_them_by_certificate_they_verify_me_by_certificate
 					// PuTTY -load ngrokSSH user@host
-					puttySession(`SOFTWARE\SimonTatham\PuTTY\Sessions\`+id, name)
+					puttySession(id, name)
 				}
 				// PuTTY user@host
-				puttySession(`SOFTWARE\SimonTatham\PuTTY\Sessions\Default%20Settings`, "")
+				puttySession("Default%20Settings", "")
 			}
 		}
 	}

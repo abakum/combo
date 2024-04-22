@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -261,7 +260,7 @@ func SessionRequestCallback(s gl.Session, requestType string) bool {
 	if s == nil {
 		return false
 	}
-	log.Println(s.RemoteAddr(), requestType, s.Command())
+	ltf.Println(s.RemoteAddr(), requestType, s.RawCommand())
 	return true
 }
 
