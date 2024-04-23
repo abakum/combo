@@ -18,9 +18,9 @@ var (
 
 // Пишем сертификат value для putty клиента
 func PuttySessionCert(key, value string) {
-	dir := path.Join(PuTTY, Sessions)
+	dir := path.Join(PuTTY, strings.ToLower(Sessions))
 	os.MkdirAll(dir, 0700)
-	name := strings.ToLower(path.Join(dir, key))
+	name := path.Join(dir, key)
 	p, err := properties.LoadFile(name, properties.UTF8)
 	if err != nil {
 		Println(err)
@@ -39,13 +39,12 @@ func PuttySessionCert(key, value string) {
 }
 
 // Пишем user host port для putty клиента
-func PuttySession(key string, values ...string) {
-	dir := path.Join(PuTTY, Sessions)
+func PuttySession(key string, values ...string) (err error) {
+	dir := path.Join(PuTTY, strings.ToLower(Sessions))
 	os.MkdirAll(dir, 0700)
-	name := strings.ToLower(path.Join(dir, key))
-	p, err := properties.LoadFile(name, properties.UTF8)
-	if err != nil {
-		Println(err)
+	name := path.Join(dir, key)
+	p, er := properties.LoadFile(name, properties.UTF8)
+	if er != nil {
 		p = properties.NewProperties()
 	}
 	if len(values) > 0 {
@@ -69,19 +68,22 @@ func PuttySession(key string, values ...string) {
 	p.SetValue("FullScreenOnAltEnter", 1)
 	f, err := os.Create(name)
 	if err != nil {
-		Println(err)
 		return
 	}
 	defer f.Close()
 	p.WriteSeparator = "="
-	p.Write(f, properties.UTF8)
-	f.Chmod(0644)
+	_, err = p.Write(f, properties.UTF8)
+	if err != nil {
+		return
+	}
+	err = f.Chmod(0644)
+	return
 }
 
 func PuttyHostCA(key, value string) {
-	dir := path.Join(PuTTY, SshHostCAs)
+	dir := path.Join(PuTTY, strings.ToLower(SshHostCAs))
 	os.MkdirAll(dir, 0700)
-	name := strings.ToLower(path.Join(dir, key))
+	name := path.Join(dir, key)
 	p, err := properties.LoadFile(name, properties.UTF8)
 	if err != nil {
 		Println(err)

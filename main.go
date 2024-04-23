@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -241,6 +242,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 		mas, err := ssh.NewSignerWithAlgorithms(caSigner.(ssh.AlgorithmSigner),
 			[]string{caSigner.PublicKey().Type()})
 		if err != nil {
+			Println(err)
 			continue
 		}
 		//ssh-keygen -s ca -I id -n user -V forever ~\.ssh\id_*.pub
@@ -253,11 +255,13 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 			Permissions:     ssh.Permissions{Extensions: permits},
 		}
 		if certificate.SignCert(rand.Reader, mas) != nil {
+			Println(err)
 			continue
 		}
 
 		certSigner, err := ssh.NewCertSigner(&certificate, idSigner)
 		if err != nil {
+			Println(err)
 			continue
 		}
 		// добавляем сертификат в слайс результата signers
@@ -313,7 +317,6 @@ func SplitHostPort(hp, host, port string) (h, p string) {
 }
 
 func useLine(load, u, h, p string) string {
-	PuttySession(load, u, h, p)
 	return fmt.Sprintf(
 		"\n\t`ssh -o UserKnownHostsFile=~/.ssh/%s %s@%s%s`"+
 			"\n\t`PuTTY -load %s %s@%s%s`",
@@ -323,11 +326,70 @@ func useLine(load, u, h, p string) string {
 	// plink -no-antispoof
 }
 
+// Пишем user host port UserKnownHostsFile для ssh клиента
+func SshSession(load, u, h, p string) (err error) {
+	name := path.Join(winssh.UserHomeDirs(".ssh"), "config")
+	bs, err := os.ReadFile(name)
+	s := ""
+	i := 0
+	old := ""
+	for _, line := range strings.Split(strings.TrimSpace(string(bs)), "\n") {
+		in := strings.ToLower(strings.TrimSpace(line))
+		kv := strings.Split(in, " ")
+		if kv[0] == "host" {
+			if len(kv) > 1 && kv[1] == load {
+				i++
+			} else {
+				if i == 1 {
+					i++
+				}
+				s += fmt.Sprintln(line)
+			}
+			continue
+		}
+		if i == 1 {
+			if in == "" {
+				continue
+			}
+			switch kv[0] {
+			case "user", "hostname", "userknownhostsfile", "port":
+			default:
+				old += fmt.Sprintln("", strings.TrimSpace(line))
+			}
+		} else {
+			s += fmt.Sprintln(line)
+		}
+	}
+	s = fmt.Sprintln(strings.TrimSpace(s))
+	s += fmt.Sprintln()
+	s += fmt.Sprintln("Host", load)
+	s += fmt.Sprintln("", "User", u)
+	s += fmt.Sprintln("", "Hostname", h)
+	s += fmt.Sprintln("", "UserKnownHostsFile ~/.ssh/"+load)
+	if p != PORT {
+		s += fmt.Sprintln("", "Port", p)
+	}
+	s += old
+	f, err := os.Create(name)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, err = f.WriteString(s)
+	if err != nil {
+		return
+	}
+	err = f.Chmod(0644)
+	return
+}
+
 // Как запускать клиентов
 func use(hp, load string, ips ...string) (s string) {
 	h, p, _ := net.SplitHostPort(hp)
 	u := winssh.UserName()
 	s = useLine(load, u, h, p)
+	defer Println("PuttySession", PuttySession(load, u, h, p))
+	defer Println("SshSession", SshSession(load, u, h, p))
 	if h != ALL {
 		return
 	}
@@ -339,7 +401,7 @@ func use(hp, load string, ips ...string) (s string) {
 }
 
 // Читаю name и добавляю замки из in в authorized
-func FileToAuthorized(name string, in ...ssh.PublicKey) (authorized []ssh.PublicKey) {
+func FileToAuthorized(name string, in ...ssh.PublicKey) (authorized []gl.PublicKey) {
 	authorizedKeysMap := map[string]ssh.PublicKey{}
 	for _, pubKey := range in {
 		authorizedKeysMap[string(pubKey.Marshal())] = pubKey

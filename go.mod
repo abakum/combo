@@ -17,7 +17,7 @@ require (
 	github.com/abakum/menu v0.0.0-20240419084129-0b97c23cf292
 	github.com/abakum/pageant v0.0.0-20240419114114-01633e0d85e4
 	github.com/abakum/version v0.1.3-lw
-	github.com/abakum/winssh v0.0.0-20240423052713-3f26c3ad3990
+	github.com/abakum/winssh v0.0.0-20240423112316-6b19b2b163ba
 	github.com/gliderlabs/ssh v0.3.7
 	github.com/magiconair/properties v1.8.7
 	github.com/xlab/closer v1.1.0

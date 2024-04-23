@@ -21,7 +21,7 @@ import (
 // signer ключ ЦС,
 // authorizedKeys ключи разрешённых пользователей,
 // CertCheck имя разрешённого пользователя в сертификате.
-func server(hp, imag, use string, signer ssh.Signer, authorizedKeys []ssh.PublicKey, certCheck *ssh.CertChecker) {
+func server(hp, imag, use string, signer ssh.Signer, authorizedKeys []gl.PublicKey, certCheck *ssh.CertChecker) {
 	ctxRWE, caRW := context.WithCancel(context.Background())
 	defer caRW()
 
@@ -55,7 +55,7 @@ func server(hp, imag, use string, signer ssh.Signer, authorizedKeys []ssh.Public
 			"sftp":                  winssh.SubsystemHandlerSftp,  // to allow sftp
 			winssh.AgentRequestType: winssh.SubsystemHandlerAgent, // to allow agent forwarding
 		},
-		SessionRequestCallback: SessionRequestCallback,
+		SessionRequestCallback: winssh.SessionRequestCallback,
 		// IdleTimeout:            -time.Second * 100, // send `keepalive` every 100 seconds
 		// MaxTimeout:             -time.Second * 300, // сlosing the session after 300 seconds with no response
 		Version: winssh.Banner(imag, Ver),
@@ -70,7 +70,7 @@ func server(hp, imag, use string, signer ssh.Signer, authorizedKeys []ssh.Public
 	publicKeyOption := gl.PublicKeyAuth(func(ctx gl.Context, key gl.PublicKey) bool {
 		Println("User", ctx.User(), "from", ctx.RemoteAddr())
 		Println("key", FingerprintSHA256(key))
-		if Authorized(key, authorizedKeys) {
+		if winssh.Authorized(key, authorizedKeys) {
 			return true
 		}
 
@@ -253,24 +253,4 @@ func netSt(accept netstat.AcceptFn) (i int, s string) {
 	}
 	i = len(tabs)
 	return
-}
-
-// logging sessions
-func SessionRequestCallback(s gl.Session, requestType string) bool {
-	if s == nil {
-		return false
-	}
-	ltf.Println(s.RemoteAddr(), requestType, s.RawCommand())
-	return true
-}
-
-// is autorized
-func Authorized(key gl.PublicKey, authorized []ssh.PublicKey) bool {
-	for _, k := range authorized {
-		if gl.KeysEqual(key, k) {
-			Println("Authorized")
-			return true
-		}
-	}
-	return false
 }
