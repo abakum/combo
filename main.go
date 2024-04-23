@@ -328,7 +328,7 @@ func useLine(load, u, h, p string) string {
 func useLineShort(load string) string {
 	return fmt.Sprintf(
 		"\n\t`ssh %s`"+
-			"\n\t`PuTTY @%s`"+
+			"\n\t`putty @%s`"+
 			"\n\t`plink -load %s -no-antispoof`",
 		load,
 		load,
