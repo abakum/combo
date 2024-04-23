@@ -319,7 +319,7 @@ func SplitHostPort(hp, host, port string) (h, p string) {
 func useLine(load, u, h, p string) string {
 	return fmt.Sprintf(
 		"\n\t`ssh -o UserKnownHostsFile=~/.ssh/%s %s@%s%s`"+
-			"\n\t`PuTTY -load %s %s@%s%s`",
+			"\n\t`putty -load %s %s@%s%s`",
 		load, u, h, pp("p", p, p == PORT),
 		load, u, h, pp("P", p, p == PORT),
 	)
