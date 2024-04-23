@@ -13,14 +13,14 @@ import (
 )
 
 var (
-	PuTTY = UserHomeDirs(".putty")
+	PuTTY = winssh.UserHomeDirs(".putty")
 )
 
 // Пишем сертификат value для putty клиента
 func PuttySessionCert(key, value string) {
-	dir := path.Join(PuTTY, strings.ToLower(Sessions))
+	dir := path.Join(PuTTY, Sessions)
 	os.MkdirAll(dir, 0700)
-	name := path.Join(dir, key)
+	name := strings.ToLower(path.Join(dir, key))
 	p, err := properties.LoadFile(name, properties.UTF8)
 	if err != nil {
 		Println(err)
@@ -40,9 +40,9 @@ func PuttySessionCert(key, value string) {
 
 // Пишем user host port для putty клиента
 func PuttySession(key string, values ...string) {
-	dir := path.Join(PuTTY, strings.ToLower(Sessions))
+	dir := path.Join(PuTTY, Sessions)
 	os.MkdirAll(dir, 0700)
-	name := path.Join(dir, key)
+	name := strings.ToLower(path.Join(dir, key))
 	p, err := properties.LoadFile(name, properties.UTF8)
 	if err != nil {
 		Println(err)
@@ -62,6 +62,7 @@ func PuttySession(key string, values ...string) {
 		p.SetValue("UserName", UserName)
 		p.SetValue("HostName", HostName)
 		p.SetValue("PortNumber", PortNumber)
+		p.SetValue("Protocol", "ssh")
 	}
 	// Для удобства
 	p.SetValue("WarnOnClose", 0)
@@ -80,7 +81,7 @@ func PuttySession(key string, values ...string) {
 func PuttyHostCA(key, value string) {
 	dir := path.Join(PuTTY, SshHostCAs)
 	os.MkdirAll(dir, 0700)
-	name := path.Join(dir, key)
+	name := strings.ToLower(path.Join(dir, key))
 	p, err := properties.LoadFile(name, properties.UTF8)
 	if err != nil {
 		Println(err)

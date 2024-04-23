@@ -312,27 +312,28 @@ func SplitHostPort(hp, host, port string) (h, p string) {
 	return hp, port
 }
 
-func useLine(h, p, imag string) string {
-
+func useLine(load, u, h, p string) string {
+	PuttySession(load, u, h, p)
 	return fmt.Sprintf(
 		"\n\t`ssh -o UserKnownHostsFile=~/.ssh/%s %s@%s%s`"+
 			"\n\t`PuTTY -load %s %s@%s%s`",
-		imag, winssh.UserName(), h, pp("p", p, p == PORT),
-		imag, winssh.UserName(), h, pp("P", p, p == PORT),
+		load, u, h, pp("p", p, p == PORT),
+		load, u, h, pp("P", p, p == PORT),
 	)
+	// plink -no-antispoof
 }
 
 // Как запускать клиентов
-func use(hp, imag string, ips ...string) (s string) {
+func use(hp, load string, ips ...string) (s string) {
 	h, p, _ := net.SplitHostPort(hp)
-	PuttySession(imag, winssh.UserName(), h, p)
-	s = useLine(h, p, imag)
+	u := winssh.UserName()
+	s = useLine(load, u, h, p)
 	if h != ALL {
 		return
 	}
 	s = ""
 	for _, h := range ips {
-		s += useLine(h, p, imag)
+		s += useLine(load, u, h, p)
 	}
 	return
 }

@@ -53,6 +53,7 @@ func PuttySession(key string, values ...string) {
 				i, _ = strconv.Atoi(PORT)
 			}
 			rk.SetDWordValue("PortNumber", uint32(i))
+			rk.SetStringValue("Protocol", "ssh")
 		}
 		// Для удобства
 		rk.SetDWordValue("WarnOnClose", 0)
