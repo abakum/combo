@@ -325,6 +325,16 @@ func useLine(load, u, h, p string) string {
 	)
 	// plink -no-antispoof
 }
+func useLineShort(load string) string {
+	return fmt.Sprintf(
+		"\n\t`ssh %s`"+
+			"\n\t`PuTTY @%s`"+
+			"\n\t`plink -load %s -no-antispoof`",
+		load,
+		load,
+		load,
+	)
+}
 
 // Пишем user host port UserKnownHostsFile для ssh клиента
 func SshSession(load, u, h, p string) (err error) {
@@ -343,7 +353,7 @@ func SshSession(load, u, h, p string) (err error) {
 				if i == 1 {
 					i++
 				}
-				s += fmt.Sprintln(line)
+				s += fmt.Sprintln(strings.TrimSpace(line))
 			}
 			continue
 		}
@@ -388,15 +398,16 @@ func use(hp, load string, ips ...string) (s string) {
 	h, p, _ := net.SplitHostPort(hp)
 	u := winssh.UserName()
 	s = useLine(load, u, h, p)
-	defer Println("PuttySession", PuttySession(load, u, h, p))
-	defer Println("SshSession", SshSession(load, u, h, p))
-	if h != ALL {
-		return
+	if h == ALL {
+		s = ""
+		for _, ip := range ips {
+			h = ip
+			s += useLine(load, u, h, p)
+		}
 	}
-	s = ""
-	for _, h := range ips {
-		s += useLine(load, u, h, p)
-	}
+	s += useLineShort(load)
+	Println("PuttySession", PuttySession(load, u, h, p))
+	Println("SshSession", SshSession(load, u, h, p))
 	return
 }
 
