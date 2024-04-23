@@ -58,7 +58,7 @@ func server(hp, imag, use string, signer ssh.Signer, authorizedKeys []ssh.Public
 		SessionRequestCallback: SessionRequestCallback,
 		// IdleTimeout:            -time.Second * 100, // send `keepalive` every 100 seconds
 		// MaxTimeout:             -time.Second * 300, // сlosing the session after 300 seconds with no response
-		Version: banner(imag),
+		Version: winssh.Banner(imag, Ver),
 	}
 
 	// next for server key

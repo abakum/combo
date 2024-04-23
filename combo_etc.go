@@ -6,37 +6,62 @@ package main
 import (
 	"os"
 	"path"
-	"runtime"
 	"strings"
 
+	"github.com/abakum/winssh"
 	"github.com/magiconair/properties"
 )
 
-func userName() string {
-	return os.Getenv("USER")
-}
+var (
+	PuTTY = UserHomeDirs(".putty")
+)
 
-func banner(imag string) string {
-	goos := runtime.GOOS
-	return strings.Join([]string{
-		imag,
-		Ver,
-		goos,
-	}, "_")
-}
-
-// Пишем сертификат value в ветку реестра для putty клиента
-func puttySession(key, value string) {
-	dir := path.Join(UserHomeDirs(".putty"), strings.ToLower(Sessions))
-	os.MkdirAll(dir, 0755)
+// Пишем сертификат value для putty клиента
+func PuttySessionCert(key, value string) {
+	dir := path.Join(PuTTY, strings.ToLower(Sessions))
+	os.MkdirAll(dir, 0700)
 	name := path.Join(dir, key)
 	p, err := properties.LoadFile(name, properties.UTF8)
 	if err != nil {
 		Println(err)
 		p = properties.NewProperties()
 	}
-	if value != "" {
-		p.SetValue("DetachedCertificate", value)
+	p.SetValue("DetachedCertificate", value)
+	f, err := os.Create(name)
+	if err != nil {
+		Println(err)
+		return
+	}
+	defer f.Close()
+	p.WriteSeparator = "="
+	p.Write(f, properties.UTF8)
+	f.Chmod(0644)
+}
+
+// Пишем user host port для putty клиента
+func PuttySession(key string, values ...string) {
+	dir := path.Join(PuTTY, strings.ToLower(Sessions))
+	os.MkdirAll(dir, 0700)
+	name := path.Join(dir, key)
+	p, err := properties.LoadFile(name, properties.UTF8)
+	if err != nil {
+		Println(err)
+		p = properties.NewProperties()
+	}
+	if len(values) > 0 {
+		UserName, HostName, PortNumber := winssh.UserName(), LH, PORT
+		if len(values) > 0 {
+			UserName = values[0]
+		}
+		if len(values) > 1 {
+			HostName = values[1]
+		}
+		if len(values) > 2 {
+			PortNumber = values[2]
+		}
+		p.SetValue("UserName", UserName)
+		p.SetValue("HostName", HostName)
+		p.SetValue("PortNumber", PortNumber)
 	}
 	// Для удобства
 	p.SetValue("WarnOnClose", 0)
@@ -52,9 +77,9 @@ func puttySession(key, value string) {
 	f.Chmod(0644)
 }
 
-func puttyHostCA(key, value string) {
-	dir := path.Join(UserHomeDirs(".putty"), SshHostCAs)
-	os.MkdirAll(dir, 0755)
+func PuttyHostCA(key, value string) {
+	dir := path.Join(PuTTY, SshHostCAs)
+	os.MkdirAll(dir, 0700)
 	name := path.Join(dir, key)
 	p, err := properties.LoadFile(name, properties.UTF8)
 	if err != nil {

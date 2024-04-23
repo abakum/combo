@@ -17,8 +17,9 @@ require (
 	github.com/abakum/menu v0.0.0-20240419084129-0b97c23cf292
 	github.com/abakum/pageant v0.0.0-20240419114114-01633e0d85e4
 	github.com/abakum/version v0.1.3-lw
-	github.com/abakum/winssh v0.0.0-20240420204819-4b8bf53f5dad
+	github.com/abakum/winssh v0.0.0-20240423052713-3f26c3ad3990
 	github.com/gliderlabs/ssh v0.3.7
+	github.com/magiconair/properties v1.8.7
 	github.com/xlab/closer v1.1.0
 	golang.org/x/crypto v0.22.0
 	golang.org/x/sys v0.19.0
@@ -34,7 +35,6 @@ require (
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/iamacarpet/go-winpty v1.0.4 // indirect
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect

@@ -14,8 +14,8 @@ github.com/abakum/pageant v0.0.0-20240419114114-01633e0d85e4 h1:m9Hw8phO6pkDg6qv
 github.com/abakum/pageant v0.0.0-20240419114114-01633e0d85e4/go.mod h1:8ryVwuOxinyKkcK1sXf8np1lEvLuZNgK8Dn7BX+cr4E=
 github.com/abakum/version v0.1.3-lw h1:zA0j8E+dL3Ly8Lkb/EF7rGhI5JuGt/O3W8/rHivXuhk=
 github.com/abakum/version v0.1.3-lw/go.mod h1:rZiTBvlZH5vLu2FxYzSHxNitOtMJ2yPDP7zIPRHbnBI=
-github.com/abakum/winssh v0.0.0-20240420204819-4b8bf53f5dad h1:K5Al9bt9u/0hhM4OcN9ha5yoI8lL03+n5iK2iUyuIRA=
-github.com/abakum/winssh v0.0.0-20240420204819-4b8bf53f5dad/go.mod h1:RcIFcT7vrKcoARfrcMQ6aTwCW2aVYbCQ5jhZSl4RRXU=
+github.com/abakum/winssh v0.0.0-20240423052713-3f26c3ad3990 h1:R/wP3Drox+Pgtj48sD0cKeAxtFz0+jLWTpts+TXP1bA=
+github.com/abakum/winssh v0.0.0-20240423052713-3f26c3ad3990/go.mod h1:GGMkHJRbDjJu9v9C8ep2lXDjyNXxFJbHy4Eq2Ext/Qo=
 github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be h1:9AeTilPcZAjCFIImctFaOjnTIavg87rW78vTPkQqLI8=
 github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be/go.mod h1:ySMOLuWl6zY27l47sB3qLNK6tF2fkHG55UZxx8oIVo4=
 github.com/creack/pty v1.1.21 h1:1/QdRyBaHHJP61QkWMXlOIBfsgdDeeKfK8SYVUWJKf0=

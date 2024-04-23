@@ -41,7 +41,6 @@ import (
 const (
 	Sessions   = "Sessions"
 	SshHostCAs = "SshHostCAs"
-	PuTTY      = `SOFTWARE\SimonTatham\PuTTY`
 )
 
 var (
@@ -91,10 +90,10 @@ func main() {
 	signer, err := ssh.NewSignerFromKey(key)
 	Fatal(err)
 
-	authorizedKeys := FileToAuthorized(filepath.Join(UserHomeDirs(".ssh"), "authorized_keys"), signer.PublicKey())
+	authorizedKeys := FileToAuthorized(filepath.Join(winssh.UserHomeDirs(".ssh"), "authorized_keys"), signer.PublicKey())
 	getSigners(signer, imag, imag)
 
-	hostKeyFallback, err := knownhosts.New(filepath.Join(UserHomeDirs(".ssh"), "known_hosts"))
+	hostKeyFallback, err := knownhosts.New(filepath.Join(winssh.UserHomeDirs(".ssh"), "known_hosts"))
 	if err != nil {
 		Println(err)
 	}
@@ -202,7 +201,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 	if len(ss) < 2 {
 		Println(fmt.Errorf("no keys from agent - не получены ключи от агента %v", err))
 	}
-	sshUserDir := UserHomeDirs(".ssh")
+	sshUserDir := winssh.UserHomeDirs(".ssh")
 	userKnownHostsFile = filepath.Join(sshUserDir, id)
 	newCA := false
 	for i, idSigner := range ss {
@@ -236,7 +235,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 				Println(userKnownHostsFile, os.WriteFile(userKnownHostsFile, bb.Bytes(), FILEMODE))
 				// for putty ...they_verify_me_by_certificate
 				// пишем ветку реестра SshHostCAs для putty клиента чтоб он доверял хосту по сертификату ЦС caSigner
-				puttyHostCA(id, strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())))
+				PuttyHostCA(id, strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())))
 			}
 		}
 		mas, err := ssh.NewSignerWithAlgorithms(caSigner.(ssh.AlgorithmSigner),
@@ -276,14 +275,14 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 				FILEMODE)
 			Println(name, err)
 			if i == 1 {
-				// пишем ссылку на один сертификат (первый) в ветку реестра ngrokSSH для putty клиента
+				// пишем ссылку на один сертификат (первый) в ветку реестра id для putty клиента
 				if err == nil {
 					// for I_verify_them_by_certificate_they_verify_me_by_certificate
-					// PuTTY -load ngrokSSH user@host
-					puttySession(id, name)
+					// PuTTY -load id user@host
+					PuttySessionCert(id, name)
 				}
-				// PuTTY user@host
-				puttySession("Default%20Settings", "")
+				// PuTTY
+				PuttySession("Default%20Settings")
 			}
 		}
 	}
@@ -313,34 +312,20 @@ func SplitHostPort(hp, host, port string) (h, p string) {
 	return hp, port
 }
 
-// Упрямый вариант
-func UserHomeDirs(dirs ...string) (s string) {
-	var err error
-	s, err = os.UserHomeDir()
-	if err != nil {
-		s, err = os.UserConfigDir()
-		if err != nil {
-			s, _ = os.MkdirTemp("", "UserDir")
-		}
-	}
-	dirs = append([]string{s}, dirs...)
-	s = filepath.Join(dirs...)
-	os.MkdirAll(s, 0700)
-	return
-}
-
 func useLine(h, p, imag string) string {
+
 	return fmt.Sprintf(
 		"\n\t`ssh -o UserKnownHostsFile=~/.ssh/%s %s@%s%s`"+
 			"\n\t`PuTTY -load %s %s@%s%s`",
-		imag, userName(), h, pp("p", p, p == PORT),
-		imag, userName(), h, pp("P", p, p == PORT),
+		imag, winssh.UserName(), h, pp("p", p, p == PORT),
+		imag, winssh.UserName(), h, pp("P", p, p == PORT),
 	)
 }
 
 // Как запускать клиентов
 func use(hp, imag string, ips ...string) (s string) {
 	h, p, _ := net.SplitHostPort(hp)
+	PuttySession(imag, winssh.UserName(), h, p)
 	s = useLine(h, p, imag)
 	if h != ALL {
 		return
