@@ -9,7 +9,7 @@
 				"-C",
 				"${fileDirname}",
 				"-ldflags",
-				"-s -w",
+				"-s",
 				"-trimpath",
 			],
 			"problemMatcher": [
@@ -27,7 +27,7 @@
 				"-C",
 				"${fileDirname}",
 				"-ldflags",
-				"-s -w",
+				"-s",
 				"-trimpath",
 				"${file}"
 			],
@@ -51,7 +51,26 @@
 				"-C",
 				"${fileDirname}",
 				"-ldflags",
-				"-s -w",
+				"-s",
+				"-trimpath",
+			],
+			"problemMatcher": [
+				"$go"
+			],
+			"group": {
+				"kind": "build",
+			}
+		},
+		{
+			"type": "shell",
+			"label": "go: install",
+			"command": "go",
+			"args": [
+				"install",
+				"-C",
+				"${fileDirname}",
+				"-ldflags",
+				"-s",
 				"-trimpath",
 			],
 			"problemMatcher": [
@@ -74,7 +93,7 @@
 				"-C",
 				"${fileDirname}",
 				"-ldflags",
-				"-s -w",
+				"-s",
 				"-trimpath",
 				"${file}"
 			],
@@ -98,7 +117,7 @@
 				"-C",
 				"${fileDirname}",
 				"-ldflags",
-				"-s -w",
+				"-s",
 				"-trimpath",
 			],
 			"problemMatcher": [
@@ -121,7 +140,7 @@
 				"-C",
 				"${fileDirname}",
 				"-ldflags",
-				"-s -w",
+				"-s",
 				"-trimpath",
 				"${file}"
 			],

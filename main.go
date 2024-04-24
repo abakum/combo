@@ -30,6 +30,7 @@ import (
 	"github.com/abakum/menu"
 	"github.com/abakum/pageant"
 	"github.com/abakum/winssh"
+	"github.com/kevinburke/ssh_config"
 
 	version "github.com/abakum/version/lib"
 	gl "github.com/gliderlabs/ssh"
@@ -77,6 +78,7 @@ func main() {
 	var (
 		h bool
 	)
+	SetColor()
 	Exe, err := os.Executable()
 	Fatal(err)
 	imag := strings.Split(filepath.Base(Exe), ".")[0]
@@ -105,29 +107,58 @@ func main() {
 		HostKeyFallback: hostKeyFallback,
 	}
 
-	flag.BoolVar(&h, "h", h, fmt.Sprintf("show `help` for usage - показать использование параметров\nexample - пример `%s -h`", imag))
+	flag.BoolVar(&h, "h", h, fmt.Sprintf(
+		"show `help` for usage - показать использование параметров\n"+
+			"example - пример `%s :2222` как 127.0.0.1:2222\n"+
+			"`%s *` как 0.0.0.0:22\n"+
+			"`%s` как 127.0.0.1:22\n"+
+			"`%s _` как первый интерфейс например 192.168.0.1:22\n",
+		imag,
+		imag,
+		imag,
+		imag,
+	))
 	flag.Parse()
 
 	if h {
-		fmt.Printf("Version %s of `%s [host[:port]] `\n", Ver, imag)
+		fmt.Printf("Version %s of `%s [user@][host][:port] `\n", Ver, imag)
 		flag.PrintDefaults()
 		return
 	}
 
-	SetColor()
-
-	hp := flag.Arg(0)
-
-	hp = net.JoinHostPort(SplitHostPort(hp, LH, PORT))
+	u, hp, cl := uhp(flag.Arg(0), LH, PORT, ips...)
+	if cl {
+		Println(use(u, hp, imag, ips...))
+		return
+	}
 
 	defer closer.Close()
 	closer.Bind(cleanup)
 
 	for {
-		server(hp, imag, use(hp, imag, ips...), signer, authorizedKeys, certCheck)
+		server(hp, imag, use(u, hp, imag, ips...), signer, authorizedKeys, certCheck)
 		winssh.KidsDone(os.Getpid())
 		time.Sleep(TOR)
 	}
+}
+
+func uhp(uhp, dh, dp string, ips ...string) (u, hp string, cl bool) {
+	ss := strings.Split(uhp, "@")
+	u = winssh.UserName()
+	hp = uhp
+	if len(ss) > 1 {
+		cl = true
+		if ss[0] != "" {
+			u = ss[0]
+		}
+		hp = ss[1]
+	}
+	h, p := SplitHostPort(hp, dh, dp)
+	if h == "_" && len(ips) > 0 {
+		h = ips[0]
+	}
+	hp = net.JoinHostPort(h, p)
+	return
 }
 
 func ints() (ips []string) {
@@ -323,7 +354,6 @@ func useLine(load, u, h, p string) string {
 		load, u, h, pp("p", p, p == PORT),
 		load, u, h, pp("P", p, p == PORT),
 	)
-	// plink -no-antispoof
 }
 func useLineShort(load string) string {
 	return fmt.Sprintf(
@@ -336,10 +366,44 @@ func useLineShort(load string) string {
 	)
 }
 
+func SshToPutty(load string) (err error) {
+	name := path.Join(winssh.UserHomeDirs(".ssh"), "config")
+	bs, err := os.ReadFile(name)
+	if err != nil {
+		return
+	}
+	cfg, err := ssh_config.DecodeBytes(bs)
+	if err != nil {
+		return
+	}
+	for _, host := range cfg.Hosts {
+		pattern0 := host.Patterns[0].String()
+		switch pattern0 {
+		case "*", load:
+			continue
+		}
+		u := ssh_config.Get(pattern0, "user")
+		h := ssh_config.Get(pattern0, "hostname")
+		p := ssh_config.Get(pattern0, "port")
+
+		session := strings.ReplaceAll(pattern0, "?", "7")
+		session = strings.ReplaceAll(session, "*", "8")
+		err = PuttySession(session, u, h, p)
+		if err != nil {
+			return
+		}
+	}
+	return
+
+}
+
 // Пишем user host port UserKnownHostsFile для ssh клиента
 func SshSession(load, u, h, p string) (err error) {
 	name := path.Join(winssh.UserHomeDirs(".ssh"), "config")
 	bs, err := os.ReadFile(name)
+	if err != nil {
+		return
+	}
 	s := ""
 	i := 0
 	old := ""
@@ -394,9 +458,8 @@ func SshSession(load, u, h, p string) (err error) {
 }
 
 // Как запускать клиентов
-func use(hp, load string, ips ...string) (s string) {
+func use(u, hp, load string, ips ...string) (s string) {
 	h, p, _ := net.SplitHostPort(hp)
-	u := winssh.UserName()
 	s = useLine(load, u, h, p)
 	if h == ALL {
 		s = ""
@@ -406,8 +469,9 @@ func use(hp, load string, ips ...string) (s string) {
 		}
 	}
 	s += useLineShort(load)
-	Println("PuttySession", PuttySession(load, u, h, p))
 	Println("SshSession", SshSession(load, u, h, p))
+	Println("SshToPutty", SshToPutty(load))
+	Println("PuttySession", PuttySession(load, u, h, p))
 	return
 }
 
