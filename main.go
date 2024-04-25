@@ -43,30 +43,43 @@ import (
 const (
 	Sessions   = "Sessions"
 	SshHostCAs = "SshHostCAs"
+	PORT       = "22"
+	ALL        = "0.0.0.0"
+	LH         = "127.0.0.1"
+	FILEMODE   = 0644
+	DIRMODE    = 0755
+	TOR        = time.Second * 15 //reconnect TO
+	TOW        = time.Second * 5  //watch TO
+	SSH2       = "SSH-2.0-"
+	OSSH       = "OpenSSH_for_Windows"
+	RESET      = "-r"
 )
 
 var (
-	_ = encryptedfs.ENC
-	_ = version.Ver
+	_    = encryptedfs.ENC
+	_    = version.Ver
+	Keys = []string{
+		"UserName",
+		"HostName",
+		"PortNumber",
+		"AgentFwd",
+
+		"Protocol",
+	}
+	Defs = []string{
+		winssh.UserName(),
+		LH,
+		PORT,
+		"0",
+
+		"ssh",
+	}
 )
 
 //go:generate go run github.com/abakum/version
 //go:generate go run cmd/main.go
 //go:generate go run github.com/abakum/embed-encrypt
 //go:generate go list -f '{{.EmbedFiles}}'
-
-const (
-	PORT     = "22"
-	ALL      = "0.0.0.0"
-	LH       = "127.0.0.1"
-	FILEMODE = 0644
-	DIRMODE  = 0755
-	TOR      = time.Second * 15 //reconnect TO
-	TOW      = time.Second * 5  //watch TO
-	SSH2     = "SSH-2.0-"
-	OSSH     = "OpenSSH_for_Windows"
-	CGIR     = "-r"
-)
 
 //encrypted:embed internal/ca
 var CA []byte // Ключ ЦС
@@ -317,7 +330,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 					PuttySessionCert(id, name)
 				}
 				// PuTTY
-				PuttySession("Default%20Settings")
+				PuttySession("Default%20Settings", Keys, Defs)
 			}
 		}
 	}
@@ -366,7 +379,7 @@ func useLineShort(load string) string {
 	)
 }
 
-func SshToPutty(load string) (err error) {
+func SshToPutty() (err error) {
 	name := path.Join(winssh.UserHomeDirs(".ssh"), "config")
 	bs, err := os.ReadFile(name)
 	if err != nil {
@@ -377,24 +390,34 @@ func SshToPutty(load string) (err error) {
 		return
 	}
 	for _, host := range cfg.Hosts {
-		pattern0 := host.Patterns[0].String()
-		switch pattern0 {
-		case "*", load:
+		if len(host.Patterns) < 1 {
 			continue
 		}
-		u := ssh_config.Get(pattern0, "user")
-		h := ssh_config.Get(pattern0, "hostname")
-		p := ssh_config.Get(pattern0, "port")
-
+		pattern0 := host.Patterns[0].String()
+		if pattern0 == "*" {
+			continue
+		}
 		session := strings.ReplaceAll(pattern0, "?", "7")
 		session = strings.ReplaceAll(session, "*", "8")
-		err = PuttySession(session, u, h, p)
+		err = PuttySession(session, Keys, Defs,
+			ssh_config.Get(pattern0, "User"),
+			ssh_config.Get(pattern0, "HostName"),
+			ssh_config.Get(pattern0, "Port"),
+			yes(ssh_config.Get(pattern0, "ForwardAgent")),
+		)
 		if err != nil {
 			return
 		}
 	}
 	return
 
+}
+
+func yes(s string) string {
+	if strings.EqualFold(s, "yes") {
+		return "1"
+	}
+	return "0"
 }
 
 // Пишем user host port UserKnownHostsFile для ssh клиента
@@ -470,8 +493,7 @@ func use(u, hp, load string, ips ...string) (s string) {
 	}
 	s += useLineShort(load)
 	Println("SshSession", SshSession(load, u, h, p))
-	Println("SshToPutty", SshToPutty(load))
-	Println("PuttySession", PuttySession(load, u, h, p))
+	Println("SshToPutty", SshToPutty())
 	return
 }
 

@@ -39,7 +39,7 @@ func PuttySessionCert(key, value string) {
 }
 
 // Пишем user host port для putty клиента
-func PuttySession(key string, values ...string) (err error) {
+func PuttySession(key string, keys, defs []string, values ...string) (err error) {
 	dir := path.Join(PuTTY, strings.ToLower(Sessions))
 	os.MkdirAll(dir, 0700)
 	name := path.Join(dir, key)
@@ -48,20 +48,13 @@ func PuttySession(key string, values ...string) (err error) {
 		p = properties.NewProperties()
 	}
 	if len(values) > 0 {
-		UserName, HostName, PortNumber := winssh.UserName(), LH, PORT
-		if len(values) > 0 {
-			UserName = values[0]
+		for i, k := range keys {
+			if len(values) > i {
+				p.SetValue(k, values[i])
+				continue
+			}
+			p.SetValue(k, defs[i])
 		}
-		if len(values) > 1 {
-			HostName = values[1]
-		}
-		if len(values) > 2 {
-			PortNumber = values[2]
-		}
-		p.SetValue("UserName", UserName)
-		p.SetValue("HostName", HostName)
-		p.SetValue("PortNumber", PortNumber)
-		p.SetValue("Protocol", "ssh")
 	}
 	// Для удобства
 	p.SetValue("WarnOnClose", 0)

@@ -19,6 +19,7 @@ require (
 	github.com/abakum/version v0.1.3-lw
 	github.com/abakum/winssh v0.0.0-20240423112316-6b19b2b163ba
 	github.com/gliderlabs/ssh v0.3.7
+	github.com/kevinburke/ssh_config v1.2.0
 	github.com/magiconair/properties v1.8.7
 	github.com/xlab/closer v1.1.0
 	golang.org/x/crypto v0.22.0
@@ -34,7 +35,6 @@ require (
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203 // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/iamacarpet/go-winpty v1.0.4 // indirect
-	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -104,11 +103,8 @@ func server(hp, imag, use string, signer ssh.Signer, authorizedKeys []gl.PublicK
 		defer s.Exit(0)
 		clientVersion := s.Context().ClientVersion()
 		ltf.Println(clientVersion)
-		if len(s.Command()) > 1 {
-			bas := strings.Split(filepath.Base(s.Command()[0]), ".")[0]
-			if strings.EqualFold(bas, imag) && s.Command()[1] == CGIR {
-				caRW()
-			}
+		if len(s.Command()) == 2 && s.Command()[0] == imag && s.Command()[1] == RESET {
+			caRW()
 		}
 		winssh.ShellOrExec(s)
 	})
