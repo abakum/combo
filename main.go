@@ -37,7 +37,6 @@ import (
 	"github.com/xlab/closer"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 const (
@@ -53,6 +52,8 @@ const (
 	SSH2       = "SSH-2.0-"
 	OSSH       = "OpenSSH_for_Windows"
 	RESET      = "-r"
+
+	// Для клиента
 )
 
 var (
@@ -89,7 +90,7 @@ var Ver string
 
 func main() {
 	var (
-		h bool
+		help bool
 	)
 	SetColor()
 	exe, err := os.Executable()
@@ -107,20 +108,22 @@ func main() {
 	Fatal(err)
 
 	authorizedKeys := FileToAuthorized(filepath.Join(winssh.UserHomeDirs(".ssh"), "authorized_keys"), signer.PublicKey())
-	getSigners(signer, imag, imag)
+	// Signers для клиента
+	signers, _ := getSigners(signer, imag, imag)
 
-	hostKeyFallback, err := knownhosts.New(filepath.Join(winssh.UserHomeDirs(".ssh"), "known_hosts"))
-	if err != nil {
-		Println(err)
-	}
+	// hostKeyFallback, err := knownhosts.New(filepath.Join(winssh.UserHomeDirs(".ssh"), "known_hosts"))
+	// if err != nil {
+	// 	Println(err)
+	// }
 	certCheck := &ssh.CertChecker{
 		IsHostAuthority: func(p ssh.PublicKey, addr string) bool {
 			return gl.KeysEqual(p, signer.PublicKey())
 		},
-		HostKeyFallback: hostKeyFallback,
+		// HostKeyFallback: hostKeyFallback,
+		HostKeyFallback: nil,
 	}
 
-	flag.BoolVar(&h, "h", h, fmt.Sprintf(
+	flag.BoolVar(&help, "h", help, fmt.Sprintf(
 		"show `help` for usage - показать использование параметров\n"+
 			"example - пример `%s :2222` как 127.0.0.1:2222\n"+
 			"`%s *` как 0.0.0.0:22\n"+
@@ -131,18 +134,21 @@ func main() {
 		imag,
 		imag,
 	))
+	// для клиента
+	clientOpt(imag)
 	flag.Parse()
 
-	if h {
+	if help {
 		fmt.Printf("Version %s of `%s [user@][host][:port] `\n", Ver, imag)
 		flag.PrintDefaults()
 		return
 	}
 
-	u, hp, cl := uhp(flag.Arg(0), LH, PORT, ips...)
-	s := use(u, hp, imag, ips...)
+	u, h, p, cl := uhp(flag.Arg(0), LH, PORT, ips...)
+	s := use(u, h, p, imag, ips...)
 	if cl {
 		Println(s)
+		client(u, h, p, imag, signers, certCheck)
 		return
 	}
 
@@ -150,16 +156,16 @@ func main() {
 	closer.Bind(cleanup)
 
 	for {
-		server(hp, imag, s, signer, authorizedKeys, certCheck)
+		server(h, p, imag, s, signer, authorizedKeys, certCheck)
 		winssh.KidsDone(os.Getpid())
 		time.Sleep(TOR)
 	}
 }
 
-func uhp(uhp, dh, dp string, ips ...string) (u, hp string, cl bool) {
+func uhp(uhp, dh, dp string, ips ...string) (u, h, p string, cl bool) {
 	ss := strings.Split(uhp, "@")
 	u = winssh.UserName()
-	hp = uhp
+	hp := uhp
 	if len(ss) > 1 {
 		cl = true
 		if ss[0] != "" {
@@ -167,11 +173,10 @@ func uhp(uhp, dh, dp string, ips ...string) (u, hp string, cl bool) {
 		}
 		hp = ss[1]
 	}
-	h, p := SplitHostPort(hp, dh, dp)
+	h, p = SplitHostPort(hp, dh, dp)
 	if h == "_" && len(ips) > 0 {
 		h = ips[0]
 	}
-	hp = net.JoinHostPort(h, p)
 	return
 }
 
@@ -484,8 +489,7 @@ func SshSession(load, u, h, p string) (err error) {
 }
 
 // Как запускать клиентов
-func use(u, hp, load string, ips ...string) (s string) {
-	h, p, _ := net.SplitHostPort(hp)
+func use(u, h, p, load string, ips ...string) (s string) {
 	if h == ALL {
 		for _, ip := range ips {
 			h = ip

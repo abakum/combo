@@ -29,7 +29,6 @@ func PuttySessionCert(key, value string) {
 
 // Пишем user host port для putty клиента
 func PuttySession(key string, keys, defs []string, values ...string) (err error) {
-	const FA = "No"
 	rk, _, err := registry.CreateKey(registry.CURRENT_USER,
 		filepath.Join(PuTTY, Sessions, key),
 		registry.CREATE_SUB_KEY|registry.SET_VALUE)

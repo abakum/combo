@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -18,16 +19,16 @@ import (
 // hp хост:порт,
 // imag имя в сертификате,
 // signer ключ ЦС,
-// authorizedKeys ключи разрешённых пользователей,
+// authorizedKeys замки разрешённых пользователей,
 // CertCheck имя разрешённого пользователя в сертификате.
-func server(hp, imag, use string, signer ssh.Signer, authorizedKeys []gl.PublicKey, certCheck *ssh.CertChecker) {
+func server(h, p, imag, use string, signer ssh.Signer, authorizedKeys []gl.PublicKey, certCheck *ssh.CertChecker) {
 	ctxRWE, caRW := context.WithCancel(context.Background())
 	defer caRW()
 
 	ForwardedTCPHandler := &gl.ForwardedTCPHandler{}
 
 	server := gl.Server{
-		Addr: hp,
+		Addr: net.JoinHostPort(h, p),
 		// next for ssh -R host:port:x:x
 		ReversePortForwardingCallback: gl.ReversePortForwardingCallback(func(ctx gl.Context, host string, port uint32) bool {
 			li.Println("Attempt to bind - Начать слушать", host, port, "granted - позволено")
@@ -109,15 +110,15 @@ func server(hp, imag, use string, signer ssh.Signer, authorizedKeys []gl.PublicK
 		winssh.ShellOrExec(s)
 	})
 
-	li.Printf("%s daemon waiting on - сервер ожидает на %s\n", imag, hp)
+	li.Printf("%s daemon waiting on - сервер ожидает на %s\n", imag, server.Addr)
 	li.Println("to connect use - чтоб подключится используй", use)
 
 	go func() {
-		watch(ctxRWE, caRW, hp)
+		watch(ctxRWE, caRW, server.Addr)
 		ltf.Println("local done")
 		server.Close()
 	}()
-	go established(ctxRWE, hp)
+	go established(ctxRWE, server.Addr)
 	Println("ListenAndServe", server.ListenAndServe())
 }
 
@@ -203,7 +204,7 @@ func watch(ctx context.Context, ca context.CancelFunc, dest string) {
 	}
 }
 
-// Что там с портами imagename
+// Что там с подключениями к dest
 func established(ctx context.Context, dest string) {
 	old := 0
 	ste_ := ""
@@ -238,7 +239,7 @@ func established(ctx context.Context, dest string) {
 	}
 }
 
-// func(s *netstat.SockTabEntry) bool {return s.State == a}
+// Согласно фильтру accept возвращает количество i и список s
 func netSt(accept netstat.AcceptFn) (i int, s string) {
 	tabs, err := netstat.TCPSocks(accept)
 	if err != nil {
