@@ -35,7 +35,7 @@ func PuttySessionCert(key, value string) {
 	defer f.Close()
 	p.WriteSeparator = "="
 	p.Write(f, properties.UTF8)
-	f.Chmod(0644)
+	f.Chmod(FILEMODE)
 }
 
 // Пишем user host port для putty клиента
@@ -69,7 +69,7 @@ func PuttySession(key string, keys, defs []string, values ...string) (err error)
 	if err != nil {
 		return
 	}
-	err = f.Chmod(0644)
+	err = f.Chmod(FILEMODE)
 	return
 }
 
@@ -95,5 +95,5 @@ func PuttyHostCA(key, value string) {
 	defer f.Close()
 	p.WriteSeparator = "="
 	p.Write(f, properties.UTF8)
-	f.Chmod(0644)
+	f.Chmod(FILEMODE)
 }

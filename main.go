@@ -92,12 +92,12 @@ func main() {
 		h bool
 	)
 	SetColor()
-	Exe, err := os.Executable()
+	exe, err := os.Executable()
 	Fatal(err)
-	imag := strings.Split(filepath.Base(Exe), ".")[0]
+	imag := strings.Split(filepath.Base(exe), ".")[0]
 
 	ips := ints()
-	Println(runtime.GOOS, runtime.GOARCH, imag, Ver, ips)
+	Println(runtime.GOOS, runtime.GOARCH, exe, Ver, ips)
 	FatalOr("not connected - нет сети", len(ips) == 0)
 
 	key, err := x509.ParsePKCS8PrivateKey(CA)
@@ -140,8 +140,9 @@ func main() {
 	}
 
 	u, hp, cl := uhp(flag.Arg(0), LH, PORT, ips...)
+	s := use(u, hp, imag, ips...)
 	if cl {
-		Println(use(u, hp, imag, ips...))
+		Println(s)
 		return
 	}
 
@@ -149,7 +150,7 @@ func main() {
 	closer.Bind(cleanup)
 
 	for {
-		server(hp, imag, use(u, hp, imag, ips...), signer, authorizedKeys, certCheck)
+		server(hp, imag, s, signer, authorizedKeys, certCheck)
 		winssh.KidsDone(os.Getpid())
 		time.Sleep(TOR)
 	}
@@ -330,7 +331,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 					PuttySessionCert(id, name)
 				}
 				// PuTTY
-				PuttySession("Default%20Settings", Keys, Defs)
+				PuttySession("Default%20Settings", nil, nil)
 			}
 		}
 	}
@@ -362,8 +363,10 @@ func SplitHostPort(hp, host, port string) (h, p string) {
 
 func useLine(load, u, h, p string) string {
 	return fmt.Sprintf(
-		"\n\t`ssh -o UserKnownHostsFile=~/.ssh/%s %s@%s%s`"+
+		"\n\t`%s %s@%s:%s`"+
+			"\n\t`ssh -o UserKnownHostsFile=~/.ssh/%s %s@%s%s`"+
 			"\n\t`putty -load %s %s@%s%s`",
+		load, u, h, p,
 		load, u, h, pp("p", p, p == PORT),
 		load, u, h, pp("P", p, p == PORT),
 	)
@@ -476,20 +479,20 @@ func SshSession(load, u, h, p string) (err error) {
 	if err != nil {
 		return
 	}
-	err = f.Chmod(0644)
+	err = f.Chmod(FILEMODE)
 	return
 }
 
 // Как запускать клиентов
 func use(u, hp, load string, ips ...string) (s string) {
 	h, p, _ := net.SplitHostPort(hp)
-	s = useLine(load, u, h, p)
 	if h == ALL {
-		s = ""
 		for _, ip := range ips {
 			h = ip
 			s += useLine(load, u, h, p)
 		}
+	} else {
+		s += useLine(load, u, h, p)
 	}
 	s += useLineShort(load)
 	Println("SshSession", SshSession(load, u, h, p))
