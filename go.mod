@@ -7,7 +7,7 @@ replace internal/tool => ./internal/tool
 // replace github.com/abakum/winssh => ../winssh
 
 // replace github.com/abakum/go-netstat => ../go-netstat
-// replace github.com/abakum/go-sshlib => ../go-sshlib
+replace github.com/abakum/go-sshlib => ../go-sshlib
 
 replace github.com/ThalesIgnite/crypto11 v1.2.5 => github.com/blacknon/crypto11 v1.2.6
 
@@ -34,7 +34,7 @@ require (
 	github.com/ScaleFT/sshkeys v0.0.0-20200327173127-6142f742bca5 // indirect
 	github.com/ThalesIgnite/crypto11 v1.2.5 // indirect
 	github.com/abakum/go-console v0.0.0-20240420142043-eda1cdf92473 // indirect
-	github.com/abakum/term v0.0.0-20240427070122-7d2aea711062 // indirect
+	github.com/abakum/term v0.0.0-20240212164236-135562d7e4cf // indirect
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 // indirect
 	github.com/creack/pty v1.1.21 // indirect
