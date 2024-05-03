@@ -16,28 +16,6 @@ var (
 	PuTTY = winssh.UserHomeDirs(".putty")
 )
 
-// Пишем сертификат value для putty клиента
-func PuttySessionCert(key, value string) {
-	dir := path.Join(PuTTY, strings.ToLower(Sessions))
-	os.MkdirAll(dir, 0700)
-	name := path.Join(dir, key)
-	p, err := properties.LoadFile(name, properties.UTF8)
-	if err != nil {
-		Println(err)
-		p = properties.NewProperties()
-	}
-	p.SetValue("DetachedCertificate", value)
-	f, err := os.Create(name)
-	if err != nil {
-		Println(err)
-		return
-	}
-	defer f.Close()
-	p.WriteSeparator = "="
-	p.Write(f, properties.UTF8)
-	f.Chmod(FILEMODE)
-}
-
 // Пишем user host port для putty клиента
 func PuttySession(key string, keys, defs []string, values ...string) (err error) {
 	dir := path.Join(PuTTY, strings.ToLower(Sessions))
@@ -47,18 +25,35 @@ func PuttySession(key string, keys, defs []string, values ...string) (err error)
 	if er != nil {
 		p = properties.NewProperties()
 	}
-	if len(values) > 0 {
-		for i, k := range keys {
-			if len(values) > i {
-				p.SetValue(k, values[i])
-				continue
-			}
-			p.SetValue(k, defs[i])
+	value := ""
+	for i, k := range keys {
+		if len(values) > i {
+			value = values[i]
+		} else {
+			value = defs[i]
 		}
+		if k == "ProxyHost" {
+			if value == "" {
+				defs[ProxyI] = "0"
+				defs[ProxyI+1] = "_"
+				defs[ProxyI+2] = defs[2]
+			} else {
+				defs[ProxyI] = "6"
+				ss := strings.Split(value, "@")
+				if len(ss) > 1 {
+					defs[ProxyI+1] = ss[0]
+					value = ss[1]
+				}
+				ss = strings.Split(value, ":")
+				if len(ss) > 1 {
+					value = ss[0]
+					defs[ProxyI+2] = ss[1]
+				}
+			}
+		}
+		p.SetValue(k, value)
 	}
-	// Для удобства
-	p.SetValue("WarnOnClose", 0)
-	p.SetValue("FullScreenOnAltEnter", 1)
+
 	f, err := os.Create(name)
 	if err != nil {
 		return
@@ -73,20 +68,18 @@ func PuttySession(key string, keys, defs []string, values ...string) (err error)
 	return
 }
 
-func PuttyHostCA(key, value string) {
-	dir := path.Join(PuTTY, strings.ToLower(SshHostCAs))
-	os.MkdirAll(dir, 0700)
-	name := path.Join(dir, key)
+func PuttyConf(name string, kv map[string]string) {
+	os.MkdirAll(path.Dir(name), 0700)
 	p, err := properties.LoadFile(name, properties.UTF8)
 	if err != nil {
 		Println(err)
 		p = properties.NewProperties()
 	}
-	p.SetValue("PublicKey", value)
-	p.SetValue("Validity", "*")
-	p.SetValue("PermitRSASHA1", 0)
-	p.SetValue("PermitRSASHA256", 1)
-	p.SetValue("PermitRSASHA512", 1)
+
+	for k, v := range kv {
+		p.SetValue(k, v)
+	}
+
 	f, err := os.Create(name)
 	if err != nil {
 		Println(err)

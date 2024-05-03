@@ -16,9 +16,11 @@ import (
 	"github.com/abakum/go-sshlib"
 	"github.com/abakum/pageant"
 	"github.com/abakum/winssh"
+	gl "github.com/gliderlabs/ssh"
 	"github.com/xlab/closer"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 const (
@@ -50,13 +52,31 @@ var (
 	_ string
 )
 
-func client(user, host, port, imag string, signers []ssh.Signer, certCheck *ssh.CertChecker) {
+func client(user, host, port, imag string, signers []ssh.Signer) {
+
+	hostKeyFallback, err := knownhosts.New(filepath.Join(winssh.UserHomeDirs(".ssh"), "known_hosts"))
+	if err != nil {
+		Println(err)
+	}
+	certCheck := &ssh.CertChecker{
+		IsHostAuthority: func(p ssh.PublicKey, addr string) bool {
+			ok := gl.KeysEqual(p, signers[0].PublicKey())
+			s := "was not"
+			if ok {
+				s = "is"
+			}
+			Println("host", addr, s, "authorized by cert", FingerprintSHA256(p))
+			return ok
+		},
+		HostKeyFallback: hostKeyFallback,
+	}
+
 	con := &sshlib.Connect{
 		ForwardAgent:    A,
 		TTY:             true,
 		HostKeyCallback: certCheck.CheckHostKey,
 		Version:         winssh.Banner(),
-		KnownHostsFiles: []string{filepath.Join(winssh.UserHomeDirs(".ssh"), "known_hosts")},
+		// KnownHostsFiles:     []string{filepath.Join(winssh.UserHomeDirs(".ssh"), "known_hosts")},
 		// CheckKnownHosts:     true,
 		// OverwriteKnownHosts: true,
 	}

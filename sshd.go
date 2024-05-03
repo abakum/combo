@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,7 +22,10 @@ import (
 // signer ключ ЦС,
 // authorizedKeys замки разрешённых пользователей,
 // CertCheck имя разрешённого пользователя в сертификате.
-func server(h, p, imag, use string, signer ssh.Signer, authorizedKeys []gl.PublicKey, certCheck *ssh.CertChecker) {
+func server(h, p, imag, use string, signer ssh.Signer) { //, authorizedKeys []gl.PublicKey
+
+	authorizedKeys := FileToAuthorized(filepath.Join(winssh.UserHomeDirs(".ssh"), "authorized_keys"), signer.PublicKey())
+
 	ctxRWE, caRW := context.WithCancel(context.Background())
 	defer caRW()
 
@@ -69,8 +73,13 @@ func server(h, p, imag, use string, signer ssh.Signer, authorizedKeys []gl.Publi
 	// next for client keys
 	publicKeyOption := gl.PublicKeyAuth(func(ctx gl.Context, key gl.PublicKey) bool {
 		Println("User", ctx.User(), "from", ctx.RemoteAddr())
-		Println("key", FingerprintSHA256(key))
-		if winssh.Authorized(key, authorizedKeys) {
+		ok := winssh.Authorized(key, authorizedKeys)
+		s := "was not"
+		if ok {
+			s = "is"
+		}
+		Println(s, "authorised by key", FingerprintSHA256(key))
+		if ok {
 			return true
 		}
 
@@ -87,12 +96,13 @@ func server(h, p, imag, use string, signer ssh.Signer, authorizedKeys []gl.Publi
 			Println(fmt.Errorf("ssh: certificate signed by unrecognized authority %s", FingerprintSHA256(cert.SignatureKey)))
 			return false
 		}
+		certCheck := &ssh.CertChecker{}
 		if err := certCheck.CheckCert(imag, cert); err != nil { //ctx.User()
 			Println(err)
 			return false
 		}
 		//  cert.Permissions
-		Println("Authorized by certificate", FingerprintSHA256(cert.SignatureKey))
+		Println("is authorized by certificate", FingerprintSHA256(cert.SignatureKey))
 		return true
 
 	})
@@ -180,7 +190,7 @@ func watch(ctx context.Context, ca context.CancelFunc, dest string) {
 				return s.State == netstat.Listen && s.LocalAddr.String() == dest
 			})
 			if new == 0 {
-				lt.Print("The service has been stopped - Служба остановлена\n\t", dest)
+				ltf.Print("The service has been stopped - Служба остановлена\n\t", dest)
 				if ca != nil {
 					ca()
 				}
@@ -188,13 +198,13 @@ func watch(ctx context.Context, ca context.CancelFunc, dest string) {
 			}
 			if old != new {
 				if new > old {
-					lt.Print("The service is running - Служба работает\n", ste)
+					ltf.Print("The service is running - Служба работает\n", ste)
 				}
 				ste_ = ste
 				old = new
 			}
 			if ste_ != ste {
-				lt.Print("The service has been changed - Служба сменилась\n", ste)
+				ltf.Print("The service has been changed - Служба сменилась\n", ste)
 				ste_ = ste
 			}
 		case <-ctx.Done():
@@ -219,17 +229,17 @@ func established(ctx context.Context, dest string) {
 			if old != new {
 				switch {
 				case new == 0:
-					lt.Println(dest, "There are no connections - Нет подключений")
+					ltf.Println(dest, "There are no connections - Нет подключений")
 				case old > new:
-					lt.Print(dest, " Connections have decreased - Подключений уменьшилось\n", ste)
+					ltf.Print(dest, " Connections have decreased - Подключений уменьшилось\n", ste)
 				default:
-					lt.Print(dest, " Connections have increased - Подключений увеличилось\n", ste)
+					ltf.Print(dest, " Connections have increased - Подключений увеличилось\n", ste)
 				}
 				ste_ = ste
 				old = new
 			}
 			if ste_ != ste {
-				lt.Print(dest, " Сonnections have changed - Подключения изменились\n", ste)
+				ltf.Print(dest, " Сonnections have changed - Подключения изменились\n", ste)
 				ste_ = ste
 			}
 		case <-ctx.Done():
@@ -246,7 +256,7 @@ func netSt(accept netstat.AcceptFn) (i int, s string) {
 		return
 	}
 	for _, tab := range tabs {
-		s += "\t" + tab.String()
+		s += "\t" + tab.String() + "\n"
 	}
 	i = len(tabs)
 	return
