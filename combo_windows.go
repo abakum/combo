@@ -12,7 +12,10 @@ import (
 )
 
 var (
-	PuTTY = `SOFTWARE\SimonTatham\PuTTY`
+	PuTTY       = `SOFTWARE\SimonTatham\PuTTY`
+	Sessions    = filepath.Join(PuTTY, "Sessions")
+	SshHostCAs  = filepath.Join(PuTTY, "SshHostCAs")
+	SshHostKeys = filepath.Join(PuTTY, "SshHostKeys")
 )
 
 // Пишем user host port для putty клиента

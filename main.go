@@ -41,21 +41,19 @@ import (
 )
 
 const (
-	Sessions    = "Sessions"
-	SshHostCAs  = "SshHostCAs"
-	SshHostKeys = "SshHostKeys"
-	PORT        = "22"
-	ALL         = "0.0.0.0"
-	LH          = "127.0.0.1"
-	FILEMODE    = 0644
-	DIRMODE     = 0755
-	TOR         = time.Second * 15 //reconnect TO
-	TOW         = time.Second * 5  //watch TO
-	SSH2        = "SSH-2.0-"
-	OSSH        = "OpenSSH_for_Windows"
-	RESET       = "-r"
-	SERVEO      = "serveo"
-	SNET        = "serveo.net"
+	PORT     = "22"
+	ALL      = "0.0.0.0"
+	LH       = "127.0.0.1"
+	FILEMODE = 0644
+	DIRMODE  = 0755
+	TOR      = time.Second * 15 //reconnect TO
+	TOW      = time.Second * 5  //watch TO
+	SSH2     = "SSH-2.0-"
+	OSSH     = "OpenSSH_for_Windows"
+	RESET    = "-r"
+	SERVEO   = "serveo"
+	SNET     = "serveo.net"
+	EQ       = "="
 )
 
 var (
@@ -298,7 +296,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 				// for putty ...they_verify_me_by_certificate
 				// пишем SshHostCAs для putty клиента чтоб он доверял хосту по сертификату ЦС caSigner
 				// PuttyHostCA(id, strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())))
-				PuttyConf(filepath.Join(PuTTY, SshHostCAs, id), map[string]string{
+				PuttyConf(filepath.Join(SshHostCAs, id), EQ, map[string]string{
 					"PublicKey":       strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())),
 					"Validity":        "*",
 					"PermitRSASHA1":   "0",
@@ -353,9 +351,9 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 					// PuTTY -load id user@host
 					// Пишем сертификат value для putty клиента
 					// PuttySessionCert(id, name)
-					PuttyConf(filepath.Join(PuTTY, Sessions, id), map[string]string{"DetachedCertificate": name})
+					PuttyConf(filepath.Join(Sessions, id), EQ, map[string]string{"DetachedCertificate": name})
 					// PuttySessionCert(SERVEO, name)
-					PuttyConf(filepath.Join(PuTTY, Sessions, SERVEO), map[string]string{"DetachedCertificate": name})
+					PuttyConf(filepath.Join(Sessions, SERVEO), EQ, map[string]string{"DetachedCertificate": name})
 				}
 				// PuTTY
 				PuttySession("Default%20Settings", Keys, Defs)
@@ -556,7 +554,7 @@ func ServeoNet(host string) (err error) {
 	if err != nil {
 		Println(err)
 	} else {
-		PuttyConf(filepath.Join(PuTTY, SshHostKeys), map[string]string{k: v})
+		PuttyConf(filepath.Join(SshHostKeys), " ", map[string]string{k: v})
 	}
 	name := path.Join(winssh.UserHomeDirs(".ssh"), SERVEO)
 	err = os.WriteFile(name, []byte(s), FILEMODE)
