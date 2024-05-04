@@ -19,42 +19,6 @@ var (
 	SshHostKeys = path.Join(PuTTY, "sshhostkeys")
 )
 
-// Пишем user host port для putty клиента
-func PuttySession(key string, keys, defs []string, values ...string) (err error) {
-	name := path.Join(Sessions, key)
-	p := confToMap(name, EQ)
-	for i, k := range keys {
-		if k == "" {
-			continue
-		}
-		value := defs[i]
-		if len(values) > i {
-			value = values[i]
-		}
-		if k == "ProxyHost" {
-			if value == "" {
-				defs[ProxyI] = "0"
-				defs[ProxyI+1] = "_"
-				defs[ProxyI+2] = defs[2]
-			} else {
-				defs[ProxyI] = "6"
-				ss := strings.Split(value, "@")
-				if len(ss) > 1 {
-					defs[ProxyI+1] = ss[0]
-					value = ss[1]
-				}
-				ss = strings.Split(value, ":")
-				if len(ss) > 1 {
-					value = ss[0]
-					defs[ProxyI+2] = ss[1]
-				}
-			}
-		}
-		p[k] = value
-	}
-	return mapToConf(name, EQ, p)
-}
-
 func confToMap(name, separator string) (kv map[string]string) {
 	kv = make(map[string]string)
 	file, err := os.Open(name)
@@ -97,7 +61,7 @@ func mapToConf(name, separator string, p map[string]string) (err error) {
 	return
 }
 
-func PuttyConf(name, separator string, kv map[string]string) {
+func Conf(name, separator string, kv map[string]string) {
 	p := confToMap(name, separator)
 	for k, v := range kv {
 		if k == "" {

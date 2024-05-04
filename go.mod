@@ -24,7 +24,6 @@ require (
 	github.com/freman/putty_hosts v0.0.0-20190504073831-66f311e42e14
 	github.com/gliderlabs/ssh v0.3.7
 	github.com/kevinburke/ssh_config v1.2.0
-	github.com/magiconair/properties v1.8.7
 	github.com/xlab/closer v1.1.0
 	golang.org/x/crypto v0.22.0
 	golang.org/x/sys v0.19.0
@@ -45,6 +44,7 @@ require (
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/iamacarpet/go-winpty v1.0.4 // indirect
 	github.com/kr/fs v0.1.0 // indirect
+	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/miekg/pkcs11 v1.1.1 // indirect

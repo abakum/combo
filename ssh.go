@@ -54,7 +54,7 @@ var (
 
 func client(user, host, port, imag string, signers []ssh.Signer) {
 
-	hostKeyFallback, err := knownhosts.New(filepath.Join(winssh.UserHomeDirs(".ssh"), "known_hosts"))
+	hostKeyFallback, err := knownhosts.New(filepath.Join(SshUserDir, "known_hosts"))
 	if err != nil {
 		Println(err)
 	}
@@ -76,9 +76,6 @@ func client(user, host, port, imag string, signers []ssh.Signer) {
 		TTY:             true,
 		HostKeyCallback: certCheck.CheckHostKey,
 		Version:         winssh.Banner(),
-		// KnownHostsFiles:     []string{filepath.Join(winssh.UserHomeDirs(".ssh"), "known_hosts")},
-		// CheckKnownHosts:     true,
-		// OverwriteKnownHosts: true,
 	}
 
 	Fatal(con.CreateClient(host, port, user, []ssh.AuthMethod{ssh.PublicKeys(signers...)}))

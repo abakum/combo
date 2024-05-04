@@ -24,7 +24,7 @@ import (
 // CertCheck имя разрешённого пользователя в сертификате.
 func server(h, p, imag, use string, signer ssh.Signer) { //, authorizedKeys []gl.PublicKey
 
-	authorizedKeys := FileToAuthorized(filepath.Join(winssh.UserHomeDirs(".ssh"), "authorized_keys"), signer.PublicKey())
+	authorizedKeys := FileToAuthorized(filepath.Join(SshUserDir, "authorized_keys"), signer.PublicKey())
 
 	ctxRWE, caRW := context.WithCancel(context.Background())
 	defer caRW()

@@ -66,30 +66,33 @@ var (
 		"AgentFwd",
 		"ProxyHost",
 
+		"ProxyMethod",
+		"ProxyUsername",
+		"ProxyPort",
+
 		"Protocol",
 		"WarnOnClose",
 		"FullScreenOnAltEnter",
 		"TerminalType",
-		"ProxyMethod",
-		"ProxyUsername",
-		"ProxyPort",
 	}
 	Defs = []string{
-		winssh.UserName(), //0
-		LH,                //1
-		PORT,              //2
-		"0",               //3
-		"",                //4
+		winssh.UserName(),
+		LH,
+		PORT,
+		"0",
+		"",
 
-		"ssh",            //5
-		"0",              //6
-		"1",              //7
-		"xterm-256color", //8
-		"0",              //9
-		"",               //10
-		PORT,             //11
+		"0",
+		"",
+		PORT,
+
+		"ssh",
+		"0",
+		"1",
+		"xterm-256color",
 	}
-	ProxyI = 9
+	SshUserDir = winssh.UserHomeDirs(".ssh")
+	Config     = filepath.Join(SshUserDir, "config")
 )
 
 //go:generate go run github.com/abakum/version
@@ -261,8 +264,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 	if len(ss) < 2 {
 		Println(fmt.Errorf("no keys from agent - не получены ключи от агента %v", err))
 	}
-	sshUserDir := winssh.UserHomeDirs(".ssh")
-	userKnownHostsFile = filepath.Join(sshUserDir, id)
+	userKnownHostsFile = filepath.Join(SshUserDir, id)
 	newCA := false
 	for i, idSigner := range ss {
 		signers = append(signers, idSigner)
@@ -279,7 +281,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 		}
 
 		data := ssh.MarshalAuthorizedKey(pub)
-		name := filepath.Join(sshUserDir, pref+".pub")
+		name := filepath.Join(SshUserDir, pref+".pub")
 		old, err := os.ReadFile(name)
 		newPub := err != nil || !bytes.Equal(data, old)
 		var mtCA int64
@@ -296,7 +298,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 				// for putty ...they_verify_me_by_certificate
 				// пишем SshHostCAs для putty клиента чтоб он доверял хосту по сертификату ЦС caSigner
 				// PuttyHostCA(id, strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())))
-				PuttyConf(filepath.Join(SshHostCAs, id), EQ, map[string]string{
+				Conf(filepath.Join(SshHostCAs, id), EQ, map[string]string{
 					"PublicKey":       strings.TrimSpace(strings.TrimPrefix(string(data), pub.Type())),
 					"Validity":        "*",
 					"PermitRSASHA1":   "0",
@@ -338,7 +340,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 		}
 
 		//если новый ключ ЦС или новый ключ от агента пишем сертификат в файл для ssh клиента и ссылку на него в реестр для putty клиента
-		name = filepath.Join(sshUserDir, pref+"-cert.pub")
+		name = filepath.Join(SshUserDir, pref+"-cert.pub")
 		if newCA || newPub || mtCA > ModTime(name) {
 			err = os.WriteFile(name,
 				ssh.MarshalAuthorizedKey(&certificate),
@@ -351,12 +353,13 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 					// PuTTY -load id user@host
 					// Пишем сертификат value для putty клиента
 					// PuttySessionCert(id, name)
-					PuttyConf(filepath.Join(Sessions, id), EQ, map[string]string{"DetachedCertificate": name})
+					Conf(filepath.Join(Sessions, id), EQ, map[string]string{"DetachedCertificate": name})
 					// PuttySessionCert(SERVEO, name)
-					PuttyConf(filepath.Join(Sessions, SERVEO), EQ, map[string]string{"DetachedCertificate": name})
+					Conf(filepath.Join(Sessions, SERVEO), EQ, map[string]string{"DetachedCertificate": name})
 				}
 				// PuTTY
-				PuttySession("Default%20Settings", Keys, Defs)
+				Conf(filepath.Join(Sessions, "Default%20Settings"), EQ, newMap(Keys, Defs))
+				// PuttySession("Default%20Settings", Keys, Defs)
 			}
 		}
 	}
@@ -408,8 +411,7 @@ func useLineShort(load string) string {
 }
 
 func uhpSession(alias string) (u, h, p string, err error) {
-	name := path.Join(winssh.UserHomeDirs(".ssh"), "config")
-	bs, err := os.ReadFile(name)
+	bs, err := os.ReadFile(Config)
 	if err != nil {
 		return
 	}
@@ -444,8 +446,7 @@ func uhpSession(alias string) (u, h, p string, err error) {
 }
 
 func SshToPutty() (err error) {
-	name := path.Join(winssh.UserHomeDirs(".ssh"), "config")
-	bs, err := os.ReadFile(name)
+	bs, err := os.ReadFile(Config)
 	if err != nil {
 		return
 	}
@@ -459,16 +460,13 @@ func SshToPutty() (err error) {
 			if s != "*" && !strings.Contains(s, ".") {
 				session := strings.ReplaceAll(s, "?", "7")
 				session = strings.ReplaceAll(session, "*", "8")
-				err = PuttySession(session, Keys, Defs,
+				Conf(filepath.Join(Sessions, session), EQ, newMap(Keys, Defs,
 					ssh_config.Get(s, "User"),
 					ssh_config.Get(s, "HostName"),
 					ssh_config.Get(s, "Port"),
 					yes(ssh_config.Get(s, "ForwardAgent")),
 					ssh_config.Get(s, "ProxyJump"),
-				)
-				if err != nil {
-					return
-				}
+				))
 			}
 		}
 	}
@@ -485,8 +483,7 @@ func yes(s string) string {
 
 // Пишем config для ssh клиента
 func SshConfig(host string, kvm map[string]string) (err error) {
-	name := path.Join(winssh.UserHomeDirs(".ssh"), "config")
-	bs, err := os.ReadFile(name)
+	bs, err := os.ReadFile(Config)
 	if err != nil {
 		return
 	}
@@ -533,7 +530,7 @@ func SshConfig(host string, kvm map[string]string) (err error) {
 		s += fmt.Sprintln("", k, v)
 	}
 	s += old
-	f, err := os.Create(name)
+	f, err := os.Create(Config)
 	if err != nil {
 		return
 	}
@@ -548,15 +545,14 @@ func SshConfig(host string, kvm map[string]string) (err error) {
 
 // Пишем HostName serveo.net UserKnownHostsFile для ssh клиента
 func ServeoNet(host string) (err error) {
-	//	PuttyHostKeys("rsa2@22:"+host, "0x10001,0xf1606a92295c09a500f5174608873f9b77996997b61eb0a8edae7d500f546341c4a3ef6e2525d0b096fe09f0f70bb8516d94003c01b1908eeeea59d30df6285d1ef45c59fd2d4a367e6f3c18931682c9dab82670ab6ef2c93f02c56aa57535d70ecd8d8d54bb97e427d8f154c7ae9b38f4b9ced10a4669abeaadb93ec135830fd30792535f275cd216940091242748d4988bf336277857ecfd06d91eddb14bcda2ff9480d2a97389fdf8bab956672a8eaa362a11721cfd0db1e0cba608daa8626ad8abe2b77428c21a9990ae0aefb000eb90b16637437e98f0652b97d3be45f6f362d081691641895bd2a5ad7cc8e252334808cf6415118546fc9d94a23eece3")
 	s := host + " ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDxYGqSKVwJpQD1F0YIhz+bd5lpl7YesKjtrn1QD1RjQcSj724lJdCwlv4J8PcLuFFtlAA8AbGQju7qWdMN9ihdHvRcWf0tSjZ+bzwYkxaCydq4JnCrbvLJPwLFaqV1NdcOzY2NVLuX5CfY8VTHrps49LnO0QpGaavqrbk+wTWDD9MHklNfJ1zSFpQAkSQnSNSYi/M2J3hX7P0G2R7dsUvNov+UgNKpc4n9+Lq5Vmcqjqo2KhFyHP0NseDLpgjaqGJq2Kvit3QowhqZkK4K77AA65CxZjdDfpjwZSuX075F9vNi0IFpFkGJW9KlrXzI4lIzSAjPZBURhUb8nZSiPuzj\n"
 	k, v, err := putty_hosts.ToPutty(s)
 	if err != nil {
 		Println(err)
 	} else {
-		PuttyConf(filepath.Join(SshHostKeys), " ", map[string]string{k: v})
+		Conf(SshHostKeys, " ", map[string]string{k: v})
 	}
-	name := path.Join(winssh.UserHomeDirs(".ssh"), SERVEO)
+	name := path.Join(SshUserDir, SERVEO)
 	err = os.WriteFile(name, []byte(s), FILEMODE)
 	if err != nil {
 		return
@@ -627,4 +623,36 @@ func pp(key, val string, empty bool) string {
 		return ""
 	}
 	return " -" + key + strings.TrimRight(" "+val, " ")
+}
+
+func newMap(keys, defs []string, values ...string) (kv map[string]string) {
+	kv = make(map[string]string)
+	for i, k := range keys {
+		v := defs[i]
+		if len(values) > i {
+			v = values[i]
+		}
+
+		if k == "ProxyHost" {
+			if v == "" {
+				defs[i+1] = "0"
+				defs[i+2] = "_"
+				defs[i+3] = defs[2]
+			} else {
+				defs[i+1] = "6"
+				ss := strings.Split(v, "@")
+				if len(ss) > 1 {
+					defs[i+2] = ss[0]
+					v = ss[1]
+				}
+				ss = strings.Split(v, ":")
+				if len(ss) > 1 {
+					v = ss[0]
+					defs[i+3] = ss[1]
+				}
+			}
+		}
+		kv[k] = v
+	}
+	return
 }
