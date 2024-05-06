@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -45,18 +44,52 @@ var (
 	X, // proXy
 	a, // без агента
 	_ bool
-	L,
-	R,
+	L, // перенос ближнего порта
+	R, // перенос дальнего порта
 	_ arrayFlags
-	S,
+	S, // порт для прокси
+	J, // ssh прокси
 	_ string
 )
 
-func client(user, host, port, imag string, signers []ssh.Signer) {
+func clientOpt(imag string) {
+	flag.BoolVar(&A, "A", false, fmt.Sprintf("`enable authentication agent` forwarding as - перенос авторизации как `ssh -A`\nexample - пример `%s -A`", imag))
+	flag.BoolVar(&E, "E", false, fmt.Sprintf("`ansi` emulate - помочь консоли поддерживать ansi последовательности\nexample - пример `%s -E`", imag))
+	flag.StringVar(&J, "J", "", fmt.Sprintf("Proxy `jamp` - ssh прокси как `ssh -J [remoteBindAlias:]bindPort[:dialHost:dialPort]`\nexample - пример `%s -J %s:22:localhost:2222`", imag, imag))
+	flag.Var(&L, "L", fmt.Sprintf("`local` port forwarding as - перенос ближнего порта как `ssh -L [localBindHost:]bindPort[:dialHost:dialPort]` or\nlocal socks5 proxy as `ssh -D [bindHost:]bindPort`\nexample - пример `%s -L 80:0.0.0.0:80`", imag))
+	flag.Var(&R, "R", fmt.Sprintf("`remote` port forwarding as - перенос дальнего порта как `ssh -R [remoteBindHost:]bindPort:dialHost:dialPort` or\nremote socks5 proxy  as `ssh -R [bindHost:]bindPort`\nexample - пример `%s -R *:80::80`", imag))
+	flag.StringVar(&S, "S", SOCKS5, fmt.Sprintf("port for proxy - порт для прокси `Socks5`\nexample - пример `%s -S 8080`", imag))
+	if runtime.GOOS == "windows" {
+		flag.BoolVar(&X, "X", X, fmt.Sprintf("set by - устанавливать с помощью `setX` all_proxy\nexample - пример `%s -X`", imag))
+	}
+	flag.BoolVar(&a, "a", false, fmt.Sprintf("`disable authentication agent` forwarding as - не переносить авторизацию как `ssh -a`\nexample - пример `%s -a`", imag))
+}
 
-	hostKeyFallback, err := knownhosts.New(filepath.Join(SshUserDir, "known_hosts"))
+func client(user, host, port, imag, kHosts, proxyJump string, signers []ssh.Signer) {
+	files := ssvToFiles(kHosts)
+
+	hostKeyFallback, err := knownhosts.New(files...)
 	if err != nil {
 		Println(err)
+	}
+	con := &sshlib.Connect{
+		ForwardAgent:    A,
+		TTY:             true,
+		Version:         winssh.Banner(),
+		KnownHostsFiles: files,
+	}
+	hkf := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		if hostKeyFallback == nil {
+			return nil
+		}
+		err = hostKeyFallback(hostname, remote, key)
+		ok := err == nil
+		s := "was not"
+		if ok {
+			s = "is"
+		}
+		Println("host", hostname, s, "authorized by key", FingerprintSHA256(key))
+		return err
 	}
 	certCheck := &ssh.CertChecker{
 		IsHostAuthority: func(p ssh.PublicKey, addr string) bool {
@@ -68,17 +101,44 @@ func client(user, host, port, imag string, signers []ssh.Signer) {
 			Println("host", addr, s, "authorized by cert", FingerprintSHA256(p))
 			return ok
 		},
-		HostKeyFallback: hostKeyFallback,
+		HostKeyFallback: hkf, //hostKeyFallback
 	}
+	con.HostKeyCallback = certCheck.CheckHostKey
 
-	con := &sshlib.Connect{
-		ForwardAgent:    A,
-		TTY:             true,
-		HostKeyCallback: certCheck.CheckHostKey,
-		Version:         winssh.Banner(),
+	if proxyJump != "" {
+		proxys := []*sshlib.Connect{}
+		proxy := &sshlib.Connect{}
+		var Client *ssh.Client
+		for _, alias := range strings.Split(proxyJump, ",") {
+			u, h, p, kh, _, err := uhpSession(alias)
+			if err != nil {
+				u, h, p = uhp(alias, LH, PORT)
+			}
+			if kh != "" {
+				proxy.KnownHostsFiles = ssvToFiles(kh)
+			}
+			Println(fmt.Sprintf("ProxyJump %s=>ssh://%s@%s:%s", proxyJump, u, h, p))
+			Fatal(proxy.CreateClient(h, p, u, []ssh.AuthMethod{ssh.KeyboardInteractive(nil), ssh.PublicKeys(signers...)}))
+			Client = proxy.Client
+			proxys = append(proxys, proxy)
+			proxy = &sshlib.Connect{}
+			proxy.ProxyDialer = Client
+
+		}
+		con.ProxyDialer = Client
 	}
-
-	Fatal(con.CreateClient(host, port, user, []ssh.AuthMethod{ssh.PublicKeys(signers...)}))
+	err = con.CreateClient(host, port, user, []ssh.AuthMethod{ssh.PublicKeys(signers...), ssh.KeyboardInteractive(nil)})
+	if err != nil {
+		switch {
+		case strings.HasSuffix(err.Error(), "knownhosts: key is unknown"):
+			con.CheckKnownHosts = true
+			con.OverwriteKnownHosts = true
+			err = con.CreateClient(host, port, user, []ssh.AuthMethod{ssh.PublicKeys(signers...)})
+			// case strings.HasSuffix(err.Error(), "no supported methods remain"):
+			// 	err = con.CreateClient(host, port, user, []ssh.AuthMethod{ssh.KeyboardInteractive(nil)})
+		}
+	}
+	Fatal(err)
 
 	serverVersion := string(con.Client.ServerVersion())
 	Println(serverVersion)
@@ -129,6 +189,17 @@ func client(user, host, port, imag string, signers []ssh.Signer) {
 
 	ska(con)
 	con.ShellAnsi(nil, E)
+}
+
+func ssvToFiles(s string) (files []string) {
+	ss := strings.Fields(s)
+	for _, file := range ss {
+		files = append(files, UserHomeDir(file))
+	}
+	if len(files) == 0 {
+		files = append(files, KnownHosts)
+	}
+	return
 }
 
 func quote(s string) string {
@@ -259,18 +330,6 @@ func parseHPHP(opt string, port int) (res []string) {
 func setX(key, val string) {
 	set := exec.Command("setx", key, val)
 	Println(fmt.Sprintf(`%s>%s %s`, "Run", quote(set.Args[0]), strings.Join(set.Args[1:], " ")), set.Run())
-}
-
-func clientOpt(imag string) {
-	flag.BoolVar(&A, "A", false, fmt.Sprintf("`enable authentication agent` forwarding as - перенос авторизации как `ssh -A`\nexample - пример `%s -A`", imag))
-	flag.BoolVar(&E, "E", false, fmt.Sprintf("`ansi` emulate - помочь консоли поддерживать ansi последовательности\nexample - пример `%s -E`", imag))
-	flag.Var(&L, "L", fmt.Sprintf("`local` port forwarding as - перенос ближнего порта как `ssh -L [bindHost:]bindPort[:dialHost:dialPort]` or\nlocal socks5 proxy as `ssh -D [bindHost:]bindPort`\nexample - пример `%s -L 80:0.0.0.0:80`", imag))
-	flag.Var(&R, "R", fmt.Sprintf("`remote` port forwarding as - перенос дальнего порта как `ssh -R [bindHost:]bindPort:dialHost:dialPort` or\nremote socks5 proxy  as `ssh -R [bindHost:]bindPort`\nexample - пример `%s -R *:80::80`", imag))
-	flag.StringVar(&S, "S", SOCKS5, fmt.Sprintf("port for proxy - порт для прокси `Socks5`\nexample - пример `%s -S 8080`", imag))
-	if runtime.GOOS == "windows" {
-		flag.BoolVar(&X, "X", X, fmt.Sprintf("set by - устанавливать с помощью `setX` all_proxy\nexample - пример `%s -X`", imag))
-	}
-	flag.BoolVar(&a, "a", false, fmt.Sprintf("`disable authentication agent` forwarding as - не переносить авторизацию как `ssh -a`\nexample - пример `%s -a`", imag))
 }
 
 func actual(fs *flag.FlagSet, fn string) bool {

@@ -93,6 +93,7 @@ var (
 	}
 	SshUserDir = winssh.UserHomeDirs(".ssh")
 	Config     = filepath.Join(SshUserDir, "config")
+	KnownHosts = filepath.Join(SshUserDir, "known_hosts")
 )
 
 //go:generate go run github.com/abakum/version
@@ -149,19 +150,19 @@ func main() {
 		return
 	}
 
-	u, h, p := uhp(flag.Arg(0), LH, PORT, ips...)
+	// like `ssh alias`
+	u, h, p, kHosts, proxyJump, err := uhpSession(flag.Arg(0))
+	if err == nil {
+		Println(fmt.Sprintf("ssh%s%s %s@%s%s", pp("J", proxyJump, proxyJump == ""), pp("o", quote("UserKnownHostsFile="+kHosts), kHosts == ""), u, h, pp("p", p, p == PORT)))
+		client(u, h, p, imag, kHosts, proxyJump, signers)
+		return
+	}
+
+	u, h, p = uhp(flag.Arg(0), LH, PORT, ips...)
 	s := use(u, h, p, imag, ips...)
 	if strings.Contains(flag.Arg(0), "@") {
-		if strings.HasPrefix(flag.Arg(0), "@") {
-			session := strings.TrimPrefix(flag.Arg(0), "@")
-			if session != "" {
-				u, h, p, err = uhpSession(session)
-				Fatal(err)
-				s = use(u, h, p, imag, ips...)
-			}
-		}
 		Println(s)
-		client(u, h, p, imag, signers)
+		client(u, h, p, imag, "", J, signers)
 		return
 	}
 
@@ -410,7 +411,12 @@ func useLineShort(load string) string {
 	)
 }
 
-func uhpSession(alias string) (u, h, p string, err error) {
+func uhpSession(alias string) (u, h, p, kHosts, proxyJump string, err error) {
+	if alias == "" {
+		err = fmt.Errorf("empty alias")
+		return
+	}
+
 	bs, err := os.ReadFile(Config)
 	if err != nil {
 		return
@@ -419,7 +425,22 @@ func uhpSession(alias string) (u, h, p string, err error) {
 	if err != nil {
 		return
 	}
-	u, err = cfg.Get(alias, "user")
+
+	err = fmt.Errorf("alias %q not found", alias)
+	for _, host := range cfg.Hosts {
+		if host.Matches(alias) {
+			if host.Patterns[0].String() == "*" {
+				continue
+			}
+			err = nil
+			break
+		}
+	}
+	if err != nil {
+		return
+	}
+
+	u, err = cfg.Get(alias, "User")
 	if err != nil {
 		return
 	}
@@ -427,22 +448,38 @@ func uhpSession(alias string) (u, h, p string, err error) {
 		u = winssh.UserName()
 	}
 
-	h, err = cfg.Get(alias, "hostname")
+	h, err = cfg.Get(alias, "HostName")
 	if err != nil {
 		return
 	}
 	if h == "" {
-		p = LH
+		h = alias
 	}
 
-	p, err = cfg.Get(alias, "port")
+	p, err = cfg.Get(alias, "Port")
 	if err != nil {
 		return
 	}
 	if p == "" {
 		p = PORT
 	}
+	kHosts, err = cfg.Get(alias, "UserKnownHostsFile")
+	if err != nil {
+		return
+	}
+
+	proxyJump, err = cfg.Get(alias, "ProxyJump")
+	if err != nil {
+		return
+	}
 	return
+}
+
+func UserHomeDir(s string) string {
+	if strings.HasPrefix(s, "~") {
+		s = filepath.Join(winssh.UserHomeDirs(), strings.TrimPrefix(s, "~"))
+	}
+	return s
 }
 
 func SshToPutty() (err error) {
@@ -544,7 +581,7 @@ func SshConfig(host string, kvm map[string]string) (err error) {
 }
 
 // Пишем HostName serveo.net UserKnownHostsFile для ssh клиента
-func ServeoNet(host string) (err error) {
+func ServeoNet(host, h, p string) (err error) {
 	s := host + " ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDxYGqSKVwJpQD1F0YIhz+bd5lpl7YesKjtrn1QD1RjQcSj724lJdCwlv4J8PcLuFFtlAA8AbGQju7qWdMN9ihdHvRcWf0tSjZ+bzwYkxaCydq4JnCrbvLJPwLFaqV1NdcOzY2NVLuX5CfY8VTHrps49LnO0QpGaavqrbk+wTWDD9MHklNfJ1zSFpQAkSQnSNSYi/M2J3hX7P0G2R7dsUvNov+UgNKpc4n9+Lq5Vmcqjqo2KhFyHP0NseDLpgjaqGJq2Kvit3QowhqZkK4K77AA65CxZjdDfpjwZSuX075F9vNi0IFpFkGJW9KlrXzI4lIzSAjPZBURhUb8nZSiPuzj\n"
 	k, v, err := putty_hosts.ToPutty(s)
 	if err != nil {
@@ -557,7 +594,14 @@ func ServeoNet(host string) (err error) {
 	if err != nil {
 		return
 	}
-	return SshConfig(host, map[string]string{"UserKnownHostsFile": "~/.ssh/" + SERVEO})
+	return SshConfig(host, map[string]string{
+		"UserKnownHostsFile":       "~/.ssh/" + SERVEO,
+		"User":                     "_",
+		"ExitOnForwardFailure":     "yes",
+		"PreferredAuthentications": "keyboard-interactive",
+		"StdinNull":                "yes",
+		"RemoteForward":            fmt.Sprintf("%s:%s %s:%s", SERVEO, PORT, h, p),
+	})
 }
 
 // Как запускать клиентов
@@ -586,12 +630,12 @@ func use(u, h, p, load string, ips ...string) (s string) {
 		"User":               u,
 		"HostName":           SERVEO,
 		"UserKnownHostsFile": "~/.ssh/" + load,
-		"ProxyJump":          SNET,
+		"ProxyJump":          "_@" + SNET,
 	}
 	Println("serveoSession", SshConfig(SERVEO, kvm))
 
 	Println("SshToPutty", SshToPutty())
-	Println("serveoNet", ServeoNet(SNET))
+	Println("serveoNet", ServeoNet(SNET, h, p))
 	return
 }
 
@@ -636,7 +680,7 @@ func newMap(keys, defs []string, values ...string) (kv map[string]string) {
 		if k == "ProxyHost" {
 			if v == "" {
 				defs[i+1] = "0"
-				defs[i+2] = "_"
+				defs[i+2] = defs[0]
 				defs[i+3] = defs[2]
 			} else {
 				defs[i+1] = "6"
