@@ -16,10 +16,10 @@ import (
 	"github.com/abakum/pageant"
 	"github.com/abakum/winssh"
 	gl "github.com/gliderlabs/ssh"
+	skh "github.com/skeema/knownhosts"
 	"github.com/xlab/closer"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 const (
@@ -67,16 +67,16 @@ func clientOpt(imag string) {
 
 func client(user, host, port, imag, kHosts, proxyJump string, signers []ssh.Signer) {
 	files := ssvToFiles(kHosts)
-
-	hostKeyFallback, err := knownhosts.New(files...)
+	hostKeyFallback, err := skh.New(files...)
 	if err != nil {
 		Println(err)
 	}
 	con := &sshlib.Connect{
-		ForwardAgent:    A,
-		TTY:             true,
-		Version:         winssh.Banner(),
-		KnownHostsFiles: files,
+		ForwardAgent:      A,
+		TTY:               true,
+		Version:           winssh.Banner(),
+		KnownHostsFiles:   files,
+		HostKeyAlgorithms: hostKeyFallback.HostKeyAlgorithms(net.JoinHostPort(host, port)),
 	}
 	hkf := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		if hostKeyFallback == nil {
@@ -86,7 +86,7 @@ func client(user, host, port, imag, kHosts, proxyJump string, signers []ssh.Sign
 		ok := err == nil
 		s := "was not"
 		if ok {
-			s = "is"
+			s = "was"
 		}
 		Println("host", hostname, s, "authorized by key", FingerprintSHA256(key))
 		return err
@@ -96,7 +96,7 @@ func client(user, host, port, imag, kHosts, proxyJump string, signers []ssh.Sign
 			ok := gl.KeysEqual(p, signers[0].PublicKey())
 			s := "was not"
 			if ok {
-				s = "is"
+				s = "was"
 			}
 			Println("host", addr, s, "authorized by cert", FingerprintSHA256(p))
 			return ok
@@ -127,6 +127,7 @@ func client(user, host, port, imag, kHosts, proxyJump string, signers []ssh.Sign
 		}
 		con.ProxyDialer = Client
 	}
+	Println(host, port, user)
 	err = con.CreateClient(host, port, user, []ssh.AuthMethod{ssh.PublicKeys(signers...), ssh.KeyboardInteractive(nil)})
 	if err != nil {
 		switch {
@@ -270,7 +271,7 @@ func tryBindR(imag string, con *sshlib.Connect, hp ...string) (hphp []string, er
 	if len(hphp) > 2 {
 		for i := 0; i < 10; i++ {
 			hphp[1] = strconv.Itoa(p)
-			err = con.TCPRemoteForward(net.JoinHostPort(hphp[0], hphp[1]), net.JoinHostPort(hphp[2], hphp[3]))
+			err = con.TCPRemoteForward(net.JoinHostPort(hphp[2], hphp[3]), net.JoinHostPort(hphp[0], hphp[1]))
 			Println(imag, "-R", strings.Join(hphp, ":"), err)
 			if err == nil {
 				return

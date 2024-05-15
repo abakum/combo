@@ -17,7 +17,7 @@ import (
 )
 
 // Сервер sshd.
-// hp хост:порт,
+// h, p хост, порт,
 // imag имя в сертификате,
 // signer ключ ЦС,
 // authorizedKeys замки разрешённых пользователей,
@@ -72,11 +72,14 @@ func server(h, p, imag, use string, signer ssh.Signer) { //, authorizedKeys []gl
 
 	// next for client keys
 	publicKeyOption := gl.PublicKeyAuth(func(ctx gl.Context, key gl.PublicKey) bool {
-		Println("User", ctx.User(), "from", ctx.RemoteAddr())
+		if ctx.User() == "_" {
+			ctx.SetValue("user", winssh.UserName())
+		}
+		Println("User", ctx.Value("user"), "from", ctx.RemoteAddr())
 		ok := winssh.Authorized(key, authorizedKeys)
 		s := "was not"
 		if ok {
-			s = "is"
+			s = "was"
 		}
 		Println(s, "authorised by key", FingerprintSHA256(key))
 		if ok {

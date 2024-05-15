@@ -16,13 +16,14 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
+	deb "runtime/debug"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/abakum/winssh"
 	"github.com/freman/putty_hosts"
 	"github.com/kevinburke/ssh_config"
+	"github.com/trzsz/go-arg"
 
 	version "github.com/abakum/version/lib"
 	gl "github.com/gliderlabs/ssh"
@@ -51,9 +53,10 @@ const (
 	SSH2     = "SSH-2.0-"
 	OSSH     = "OpenSSH_for_Windows"
 	RESET    = "-r"
-	SERVEO   = "serveo"
-	SNET     = "serveo.net"
+	SSHJ     = "ssh-j"
+	JumpHost = SSHJ + ".com"
 	EQ       = "="
+	TERM     = "xterm-256color"
 )
 
 var (
@@ -89,11 +92,12 @@ var (
 		"ssh",
 		"0",
 		"1",
-		"xterm-256color",
+		TERM,
 	}
 	SshUserDir = winssh.UserHomeDirs(".ssh")
 	Config     = filepath.Join(SshUserDir, "config")
 	KnownHosts = filepath.Join(SshUserDir, "known_hosts")
+	args       sshArgs
 )
 
 //go:generate go run github.com/abakum/version
@@ -108,16 +112,13 @@ var CA []byte // Ключ ЦС
 var Ver string
 
 func main() {
-	var (
-		help bool
-	)
 	SetColor()
 	exe, err := os.Executable()
 	Fatal(err)
 	imag := strings.Split(filepath.Base(exe), ".")[0]
 
 	ips := ints()
-	Println(runtime.GOOS, runtime.GOARCH, exe, Ver, ips)
+	Println(runtime.GOARCH, runtime.GOOS, GoVer(), exe, Ver, ips)
 	FatalOr("not connected - нет сети", len(ips) == 0)
 
 	key, err := x509.ParsePKCS8PrivateKey(CA)
@@ -129,51 +130,92 @@ func main() {
 	// Signers для клиента
 	signers, _ := getSigners(signer, imag, imag)
 
-	flag.BoolVar(&help, "h", help, fmt.Sprintf(
-		"show `help` for usage - показать использование параметров\n"+
-			"example - пример `%s :2222` как 127.0.0.1:2222\n"+
-			"`%s *` как 0.0.0.0:22\n"+
-			"`%s` как 127.0.0.1:22\n"+
-			"`%s _` как первый интерфейс например 192.168.0.1:22\n",
-		imag,
-		imag,
-		imag,
-		imag,
-	))
-	// для клиента
-	clientOpt(imag)
-	flag.Parse()
+	defer closer.Close()
+	closer.Bind(cleanup)
 
-	if help {
-		fmt.Printf("Version %s of `%s [user@][host][:port] `\n", Ver, imag)
-		flag.PrintDefaults()
-		return
+	// Like `parser := arg.MustParse(&args)` but override built in option `-v, --version` of package `arg`
+	parser, err := NewParser(arg.Config{}, &args)
+	if err != nil {
+		fmt.Fprintln(os.Stdout, err)
+		os.Exit(-1)
 	}
 
+	a2s := make([]string, 0) // without built in option
+	deb := false
+	for _, arg := range os.Args[1:] {
+		switch arg {
+		case "-h", "-help", "--help":
+			parser.WriteHelp(os.Stderr)
+			os.Exit(0)
+		case "-version", "--version":
+			fmt.Fprintln(os.Stderr, args.Version())
+			os.Exit(0)
+		case "-v":
+			deb = true
+		default:
+			a2s = append(a2s, arg)
+		}
+	}
+	err = parser.Parse(a2s)
+	if err != nil {
+		parser.WriteUsage(os.Stdout)
+		fmt.Fprintln(os.Stdout, err)
+		os.Exit(0)
+	}
+	if args.Ver {
+		fmt.Fprintln(os.Stderr, args.Version())
+		os.Exit(0)
+	}
+	args.Debug = args.Debug || deb
+
+	u, h, p := parseDestination(args.Destination)
+	if args.Daemon {
+		if u == "" {
+			u = winssh.UserName()
+		}
+		switch h {
+		case "":
+			h = LH
+		case "*":
+			h = ALL
+		case "_":
+			h = ips[0]
+		}
+		if p == "" {
+			p = "2222"
+		}
+		s := use(u, h, p, imag, ips...)
+		for {
+			server(h, p, imag, s, signer) //, authorizedKeys
+			winssh.KidsDone(os.Getpid())
+			time.Sleep(TOR)
+		}
+	}
+	TsshMain(&args)
+	return
+
+	// для клиента
+	// clientOpt(imag)
+	// flag.Parse()
+
+	_, h, _ = uhp(flag.Arg(0), "", PORT, ips...)
 	// like `ssh alias`
-	u, h, p, kHosts, proxyJump, err := uhpSession(flag.Arg(0))
+	u, h, p, kHosts, proxyJump, err := uhpSession(h)
 	if err == nil {
+		if J != "" {
+			proxyJump = J
+		}
 		Println(fmt.Sprintf("ssh%s%s %s@%s%s", pp("J", proxyJump, proxyJump == ""), pp("o", quote("UserKnownHostsFile="+kHosts), kHosts == ""), u, h, pp("p", p, p == PORT)))
 		client(u, h, p, imag, kHosts, proxyJump, signers)
 		return
 	}
 
 	u, h, p = uhp(flag.Arg(0), LH, PORT, ips...)
-	s := use(u, h, p, imag, ips...)
 	if strings.Contains(flag.Arg(0), "@") {
-		Println(s)
 		client(u, h, p, imag, "", J, signers)
 		return
 	}
 
-	defer closer.Close()
-	closer.Bind(cleanup)
-
-	for {
-		server(h, p, imag, s, signer) //, authorizedKeys
-		winssh.KidsDone(os.Getpid())
-		time.Sleep(TOR)
-	}
 }
 
 func uhp(uhp, dh, dp string, ips ...string) (u, h, p string) {
@@ -356,7 +398,7 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 					// PuttySessionCert(id, name)
 					Conf(filepath.Join(Sessions, id), EQ, map[string]string{"DetachedCertificate": name})
 					// PuttySessionCert(SERVEO, name)
-					Conf(filepath.Join(Sessions, SERVEO), EQ, map[string]string{"DetachedCertificate": name})
+					Conf(filepath.Join(Sessions, SSHJ), EQ, map[string]string{"DetachedCertificate": name})
 				}
 				// PuTTY
 				Conf(filepath.Join(Sessions, "Default%20Settings"), EQ, newMap(Keys, Defs))
@@ -380,10 +422,11 @@ func SplitHostPort(hp, host, port string) (h, p string) {
 		}
 		return h, p
 	}
-	_, err = strconv.Atoi(hp)
-	if err == nil {
-		return host, hp
-	}
+	// Нет :
+	// _, err = strconv.Atoi(hp)
+	// if err == nil {
+	// 	return host, hp
+	// }
 	if hp == "" {
 		hp = host
 	}
@@ -589,18 +632,18 @@ func ServeoNet(host, h, p string) (err error) {
 	} else {
 		Conf(SshHostKeys, " ", map[string]string{k: v})
 	}
-	name := path.Join(SshUserDir, SERVEO)
+	name := path.Join(SshUserDir, SSHJ)
 	err = os.WriteFile(name, []byte(s), FILEMODE)
 	if err != nil {
 		return
 	}
 	return SshConfig(host, map[string]string{
-		"UserKnownHostsFile":       "~/.ssh/" + SERVEO,
+		"UserKnownHostsFile":       "~/.ssh/" + SSHJ,
 		"User":                     "_",
 		"ExitOnForwardFailure":     "yes",
 		"PreferredAuthentications": "keyboard-interactive",
 		"StdinNull":                "yes",
-		"RemoteForward":            fmt.Sprintf("%s:%s %s:%s", SERVEO, PORT, h, p),
+		"RemoteForward":            fmt.Sprintf("%s:%s %s:%s", SSHJ, PORT, h, p),
 	})
 }
 
@@ -627,15 +670,15 @@ func use(u, h, p, load string, ips ...string) (s string) {
 	Println("comboSession", SshConfig(load, kvm))
 
 	kvm = map[string]string{
-		"User":               u,
-		"HostName":           SERVEO,
+		"User":               "_", // as $user at server
+		"HostName":           SSHJ,
 		"UserKnownHostsFile": "~/.ssh/" + load,
-		"ProxyJump":          "_@" + SNET,
+		"ProxyJump":          "_@" + JumpHost, // not empty user for putty
 	}
-	Println("serveoSession", SshConfig(SERVEO, kvm))
+	Println("jumpSession", SshConfig(SSHJ, kvm))
 
 	Println("SshToPutty", SshToPutty())
-	Println("serveoNet", ServeoNet(SNET, h, p))
+	Println("JumpHost", ServeoNet(JumpHost, h, p))
 	return
 }
 
@@ -699,4 +742,29 @@ func newMap(keys, defs []string, values ...string) (kv map[string]string) {
 		kv[k] = v
 	}
 	return
+}
+func GoVer() (s string) {
+	info, ok := deb.ReadBuildInfo()
+	s = "go"
+	if ok {
+		s = fmt.Sprintf("%s", info.GoVersion)
+	}
+	return
+}
+
+type Parser struct {
+	*arg.Parser
+}
+
+func (p *Parser) WriteHelp(w io.Writer) {
+	var b bytes.Buffer
+	p.Parser.WriteHelp(&b)
+	s := strings.Replace(b.String(), "  -v, --version          show program's version number and exit\n", "", 1)
+	fmt.Fprint(w, s)
+
+}
+
+func NewParser(config arg.Config, dests ...interface{}) (*Parser, error) {
+	p, err := arg.NewParser(config, dests...)
+	return &Parser{p}, err
 }
