@@ -28,142 +28,202 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
-	"sync"
 
+	"github.com/abakum/pageant"
+	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
 
+// Агент авторизации
 type xAgent struct {
-	client     agent.ExtendedAgent
-	conn       net.Conn
-	forwarding func()
-	connClose  func()
+	x             string //  ForwardAgent или IdentityAgent
+	extendedAgent agent.ExtendedAgent
+	conn          net.Conn
+	// ForwardAgent
+	client  *ssh.Client
+	session *ssh.Session
+}
+
+// Создаём канал и посылаем запрос на перенос агента
+func (x *xAgent) Forward(addr string) {
+	if x.session != nil {
+		// ForwardAgent
+		if err := agent.ForwardToAgent(x.client, x.extendedAgent); err != nil {
+			warning("forward to agent [%s] failed: %v", addr, err)
+			return
+		}
+
+		if err := agent.RequestAgentForwarding(x.session); err != nil {
+			warning("request agent forwarding to [%s] failed: %v", addr, err)
+			return
+		}
+		debug("forward to agent [%s] success", addr)
+	}
+}
+
+// Закрываем канал только IdentityAgent или all и удаляем агента из списка агентов
+func (x *xAgent) Close(addr string, agents xAgents, all bool) {
+	if x.session == nil || all {
+		// IdentityAgent || all
+		debug("connection to the %s [%s] closed\r\n", x.x, addr)
+		if x.conn != nil {
+			x.conn.Close()
+		}
+		x.extendedAgent = nil
+		x.client = nil
+		x.session = nil
+		delete(agents, addr)
+	}
+}
+
+// Список агентов авторизации
+type xAgents map[string]*xAgent
+
+// Создаём каналы и посылаем запросы на перенос агентов
+func (xs xAgents) Forward() {
+	for addr, x := range xs {
+		x.Forward(addr)
+	}
+}
+
+// Закрываем каналы только IdentityAgent или all и удаляем агентов из списка агентов
+func (xs xAgents) Close(all bool) {
+	for addr, x := range xs {
+		x.Close(addr, xs, all)
+	}
+}
+
+// Если список агентов не пуст добавляем закрытие каналов в список onExitFuncs
+func (xs xAgents) OnExit() {
+	if len(xs) > 0 {
+		onExitFuncs.Add(func() {
+			xs.Close(true)
+		})
+	}
 }
 
 var (
-	agentOnce       sync.Once
-	agentClient     agent.ExtendedAgent
-	agentForwarding func()
-	agentConnClose  func()
-	agents          = make(map[string]*xAgent)
+	agents = make(xAgents)
 )
 
+func isResolvedExist(addr string) (string, error) {
+	resolved := resolveHomeDir(addr)
+	if resolved == "" {
+		return "", fmt.Errorf("address is not set")
+	}
+	if isFileExist(resolved) {
+		return resolved, nil
+	}
+	return "", fmt.Errorf("file [%s] is not exist", resolved)
+}
+
 func getIdentityAgentAddr(args *sshArgs, param *sshParam) (string, error) {
+	const SOCK = "SSH_AUTH_SOCK"
+
 	if addr := getOptionConfig(args, "IdentityAgent"); addr != "" {
-		if strings.ToLower(addr) == "none" {
-			return "", nil
+		switch strings.ToLower(addr) {
+		case "pageant":
+			return pageantAddr()
+		case "none", "no":
+			return "", fmt.Errorf("none")
 		}
-		if strings.HasPrefix(addr, "$") {
-			s := strings.TrimPrefix(addr, "$")
-			s = strings.Trim(s, "{}")
-			return os.Getenv(s), nil
+		if addr == SOCK {
+			addr = "$" + SOCK
 		}
+		addr = expandEnv(addr)
 		expandedAddr, err := expandTokens(addr, args, param, "%CdhijkLlnpru")
 		if err != nil {
 			return "", fmt.Errorf("expand IdentityAgent [%s] failed: %v", addr, err)
 		}
-		return resolveHomeDir(expandedAddr), nil
+		return isResolvedExist(expandedAddr)
 	}
-	if addr := os.Getenv("SSH_AUTH_SOCK"); addr != "" {
-		return resolveHomeDir(addr), nil
+	if addr := os.Getenv(SOCK); addr != "" {
+		return isResolvedExist(addr)
 	}
-	if addr := defaultAgentAddr; addr != "" && isFileExist(addr) {
-		return addr, nil
+	if addr := defaultAgentAddr; addr != "" {
+		// For Windows
+		addr, err := isResolvedExist(addr)
+		if err == nil {
+			return addr, err
+		}
+		// Plan B - pageant
+		addr, err = pageantAddr()
+		if err == nil {
+			return addr, err
+		}
 	}
-	return "", nil
+	return "", fmt.Errorf("no IdentitydAgent")
+}
+
+func pageantAddr() (string, error) {
+	_, err := pageant.PageantWindow()
+	if err == nil {
+		return "pageant", err
+	}
+	return "", err
 }
 
 func getForwardAgentAddr(args *sshArgs, param *sshParam) (string, error) {
+	err := fmt.Errorf("no ForwardAgent")
 	if args.NoForwardAgent {
-		return "", nil
-	}
-	if addr := getOptionConfig(args, "ForwardAgent"); addr != "" {
-		switch strings.ToLower(addr) {
-		case "none":
-			return "", nil
-		case "yes":
-			return getIdentityAgentAddr(args, param)
-		}
-		if strings.HasPrefix(addr, "$") {
-			s := strings.TrimPrefix(addr, "$")
-			s = strings.Trim(s, "{}")
-			return os.Getenv(s), nil
-		}
-		addr = resolveHomeDir(addr)
-		if isFileExist(addr) {
-			return addr, nil
-		}
+		return "", err
 	}
 	if args.ForwardAgent {
 		return getIdentityAgentAddr(args, param)
 	}
-	return "", nil
+
+	if addr := getOptionConfig(args, "ForwardAgent"); addr != "" {
+		switch strings.ToLower(addr) {
+		case "pageant":
+			return pageantAddr()
+		case "no":
+			return "", err
+		case "yes":
+			return getIdentityAgentAddr(args, param)
+		}
+		return isResolvedExist(expandEnv(addr))
+	}
+	return "", err
 }
 
-func getAgentClient(args *sshArgs, param *sshParam) agent.ExtendedAgent {
-	agentOnce.Do(func() {
-		addr, err := getIdentityAgentAddr(args, param)
-		if err != nil {
-			warning("get agent addr failed: %v", err)
-			return
-		}
-		if addr == "" {
-			debug("ssh agent address is not set")
-			return
-		}
-
-		conn, err := dialAgent(addr)
-		if err != nil {
-			debug("dial ssh agent [%s] failed: %v", addr, err)
-			return
-		}
-
-		agentClient = agent.NewClient(conn)
-		debug("new ssh agent client [%s] success", addr)
-
-		agentConnClose = func() {
-			debug("connection to the authentication agent closed")
-			conn.Close()
-			agentClient = nil
-		}
-
-	})
-	return agentClient
-}
-
-func getForwardAgentClient(args *sshArgs, param *sshParam) agent.ExtendedAgent {
-
-	addr, err := getForwardAgentAddr(args, param)
+func getAgentClient(args *sshArgs, param *sshParam, x string) agent.ExtendedAgent {
+	var (
+		addr string
+		err  error
+	)
+	switch x {
+	case "IdentityAgent":
+		addr, err = getIdentityAgentAddr(args, param)
+	case "ForwardAgent":
+		addr, err = getForwardAgentAddr(args, param)
+	}
 	if err != nil {
-		warning("get forward agent addr failed: %v", err)
+		warning("get %s addr failed: %v", x, err)
 		return nil
 	}
-	if addr == "" {
-		debug("forward agent address is not set")
-		return nil
-	}
+	addr = filepath.Clean(addr)
 	ag, ok := agents[addr]
 	if ok {
-		return ag.client
+		debug("old %s client [%s] success", x, addr)
+		return ag.extendedAgent
 	}
-	ag = new(xAgent)
 
 	conn, err := dialAgent(addr)
 	if err != nil {
-		debug("dial forward agent [%s] failed: %v", addr, err)
+		warning("dial %s [%s] failed: %v", x, addr, err)
 		return nil
 	}
-	ag.conn = conn
 
-	ag.client = agent.NewClient(conn)
-	debug("new forward agent client [%s] success", addr)
+	extendedAgent := agent.NewClient(conn)
+	debug("new %s client [%s] success", x, addr)
 
-	ag.connClose = func() {
-		debug("connection to the forward agent %s closed", addr)
-		ag.conn.Close()
-		ag.client = nil
+	agents[addr] = &xAgent{
+		x:             x,
+		conn:          conn,
+		extendedAgent: extendedAgent,
 	}
-	agents[addr] = ag
-	return ag.client
+
+	return extendedAgent
 }

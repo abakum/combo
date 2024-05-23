@@ -249,7 +249,7 @@ func tryBindL(imag string, con *sshlib.Connect, hp ...string) (hphp []string, er
 		return
 	}
 	go func() {
-		ltf.Printf("%s -D %s:%s\n", imag, hphp[0], hphp[1])
+		lf.Printf("%s -D %s:%s\n", imag, hphp[0], hphp[1])
 		con.TCPDynamicForward(hphp[0], hphp[1])
 	}()
 	return
@@ -281,7 +281,7 @@ func tryBindR(imag string, con *sshlib.Connect, hp ...string) (hphp []string, er
 		return
 	}
 	go func() {
-		ltf.Printf("%s -R %s:%s\n", imag, hphp[0], hphp[1])
+		lf.Printf("%s -R %s:%s\n", imag, hphp[0], hphp[1])
 		con.TCPReverseDynamicForward(hphp[0], hphp[1])
 	}()
 	return
@@ -356,5 +356,5 @@ func VisitAll(u, h, p, imag, cmd string) {
 			o += fmt.Sprintf("%s%s=%s ", minus, f.Name, f.Value)
 		}
 	})
-	ltf.Printf("%s %s%s %s\n", imag, o, strings.TrimSuffix(u+"@"+h+":"+p, ":"+PORT), cmd)
+	lf.Printf("%s %s%s %s\n", imag, o, strings.TrimSuffix(u+"@"+h+":"+p, ":"+PORT), cmd)
 }

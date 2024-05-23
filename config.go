@@ -47,6 +47,7 @@ import (
 var userHomeDir string
 
 func resolveHomeDir(path string) string {
+	path = unquote(path)
 	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\") {
 		return filepath.Join(userHomeDir, path[2:])
 	}
@@ -396,7 +397,7 @@ func getAllHosts() []*sshHost {
 		if userConfig.sysConfig != nil {
 			userConfig.allHosts = append(userConfig.allHosts, recursiveGetHosts(userConfig.sysConfig.Hosts)...)
 		}
-		afterLoginFuncs = append(afterLoginFuncs, func() {
+		afterLoginFuncs.Add(func() {
 			userConfig.allHosts = nil
 			userConfig.wildcardPatterns = nil
 		})

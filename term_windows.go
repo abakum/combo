@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mattn/go-isatty"
 	"golang.org/x/sys/windows"
 	"golang.org/x/term"
 )
@@ -73,7 +74,7 @@ func enableVirtualTerminal() error {
 	if err := windows.GetConsoleMode(windows.Handle(inHandle), &inMode); err != nil {
 		return err
 	}
-	onExitFuncs = append(onExitFuncs, func() {
+	onExitFuncs.Add(func() {
 		windows.SetConsoleMode(windows.Handle(inHandle), inMode)
 	})
 	if err := windows.SetConsoleMode(windows.Handle(inHandle), inMode|windows.ENABLE_VIRTUAL_TERMINAL_INPUT); err != nil {
@@ -87,7 +88,7 @@ func enableVirtualTerminal() error {
 	if err := windows.GetConsoleMode(windows.Handle(outHandle), &outMode); err != nil {
 		return err
 	}
-	onExitFuncs = append(onExitFuncs, func() {
+	onExitFuncs.Add(func() {
 		windows.SetConsoleMode(windows.Handle(outHandle), outMode)
 	})
 	if err := windows.SetConsoleMode(windows.Handle(outHandle),
@@ -103,7 +104,7 @@ var sttyCommandExists *bool
 func sttyExecutable() bool {
 	if sttyCommandExists == nil {
 		_, err := exec.LookPath("stty")
-		exists := err == nil
+		exists := err == nil && isatty.IsCygwinTerminal(os.Stdin.Fd())
 		sttyCommandExists = &exists
 	}
 	return *sttyCommandExists
@@ -154,11 +155,15 @@ func sttySize() (int, int, error) {
 	return cols, rows, nil
 }
 
-func setupVirtualTerminal() error {
+func setupVirtualTerminal(args *sshArgs) error {
 	// enable virtual terminal
 	if err := enableVirtualTerminal(); err != nil {
 		if !sttyExecutable() {
-			return fmt.Errorf("enable virtual terminal failed: %v", err)
+			// return fmt.Errorf("enable virtual terminal failed: %v", err)
+			warning("enable virtual terminal failed: %v.\r\n"+
+				"Now tssh started as `tssh -T`, next try run it in MSYS2 or Cygwin\r\n",
+				err)
+			args.DisableTTY = true
 		}
 		if userConfig.promptCursorIcon == "" {
 			promptCursorIcon = ">>"
@@ -173,7 +178,7 @@ func setupVirtualTerminal() error {
 	outCP := getConsoleOutputCP()
 	setConsoleCP(CP_UTF8)
 	setConsoleOutputCP(CP_UTF8)
-	onExitFuncs = append(onExitFuncs, func() {
+	onExitFuncs.Add(func() {
 		setConsoleCP(inCP)
 		setConsoleOutputCP(outCP)
 	})

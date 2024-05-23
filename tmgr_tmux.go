@@ -83,7 +83,7 @@ func (m *tmuxMgr) openWindows(hosts []*sshHost) {
 	if err := exec.Command("tmux", "renamew", hosts[0].Alias).Run(); err != nil {
 		warning("Failed to rename tmux window: %v", err)
 	} else {
-		onExitFuncs = append(onExitFuncs, func() {
+		onExitFuncs.Add(func() {
 			_ = exec.Command("tmux", "setw", "automatic-rename").Run()
 		})
 	}
@@ -128,7 +128,7 @@ func (m *tmuxMgr) openPanes(hosts []*sshHost) {
 	}
 	if len(tokens) > 1 && tokens[1] != "" {
 		// reset pane title after exit
-		onExitFuncs = append(onExitFuncs, func() {
+		onExitFuncs.Add(func() {
 			_ = exec.Command("tmux", "selectp", "-t", tokens[0], "-T", tokens[1]).Run()
 		})
 	}

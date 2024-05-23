@@ -7,9 +7,9 @@ replace internal/tool => ./internal/tool
 // replace github.com/abakum/winssh => ../winssh
 
 // replace github.com/abakum/go-netstat => ../go-netstat
-replace github.com/abakum/go-sshlib => ../go-sshlib
+// replace github.com/abakum/go-sshlib => ../go-sshlib
 
-replace github.com/freman/putty_hosts => ../putty_hosts
+// replace github.com/abakum/putty_hosts => ../putty_hosts
 
 replace github.com/ThalesIgnite/crypto11 v1.2.5 => github.com/blacknon/crypto11 v1.2.6
 
@@ -18,9 +18,10 @@ require (
 	github.com/abakum/embed-encrypt v0.0.0-20240419131915-ba2ccee1a359
 	github.com/abakum/go-ansiterm v0.0.0-20240209124652-4fc46d492442
 	github.com/abakum/go-netstat v0.0.0-20240426061934-05d15dfd4d6c
-	github.com/abakum/go-sshlib v0.0.12-lw
-	github.com/abakum/menu v0.0.0-20240419084129-0b97c23cf292
+	github.com/abakum/go-sshlib v0.0.12-lw.0.20240522124737-b7a1c8b91ccd
+	github.com/abakum/menu v0.0.0-20240516123901-df323673a8dd
 	github.com/abakum/pageant v0.0.0-20240419114114-01633e0d85e4
+	github.com/abakum/putty_hosts v0.0.0-20240522125805-7fdec7195277
 	github.com/abakum/version v0.1.3-lw
 	github.com/abakum/winssh v0.0.0-20240506170933-67061329cb4d
 	github.com/alessio/shellescape v1.4.2
@@ -30,7 +31,6 @@ require (
 	github.com/charmbracelet/lipgloss v0.10.0
 	github.com/chzyer/readline v1.5.1
 	github.com/creack/pty v1.1.21
-	github.com/freman/putty_hosts v0.0.0-20190504073831-66f311e42e14
 	github.com/gliderlabs/ssh v0.3.7
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/kevinburke/ssh_config v1.2.0

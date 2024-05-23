@@ -17,6 +17,7 @@ var (
 	SshHostKeys = filepath.Join(PuTTY, "SshHostKeys") //file
 )
 
+// Конфиг для putty на Windows
 func Conf(name, _ string, kv map[string]string) {
 	rk, _, err := registry.CreateKey(registry.CURRENT_USER,
 		name,

@@ -228,7 +228,7 @@ func getIterm2Manager() terminalManager {
 		debug("new iTerm2 app failed: %v", err)
 		return nil
 	}
-	afterLoginFuncs = append(afterLoginFuncs, func() {
+	afterLoginFuncs.Add(func() {
 		app.Close()
 	})
 	debug("running in iTerm2")

@@ -37,7 +37,30 @@ import (
 
 const kTsshVersion = "0.1.19"
 
+type afterDo []func()
+
+func (a afterDo) Cleanup() {
+	for i := len(a) - 1; i >= 0; i-- {
+		a[i]()
+	}
+}
+
+func (a *afterDo) Add(f func()) {
+	*a = append(*a, f)
+}
+
+var (
+	onExitFuncs     afterDo
+	afterLoginFuncs afterDo
+	isTerminal      bool = isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
+)
+
 func background(args *sshArgs, dest string) (bool, error) {
+	args0, err := exec.LookPath(os.Args[0])
+	if err != nil {
+		return true, fmt.Errorf("LookPath [%s] failed: %v", os.Args[0], err)
+	}
+
 	if v := os.Getenv("TRZSZ-SSH-BACKGROUND"); v == "TRUE" {
 		return false, nil
 	}
@@ -74,7 +97,7 @@ func background(args *sshArgs, dest string) (bool, error) {
 	sleepTime := time.Duration(0)
 	for {
 		cmd := exec.Cmd{
-			Path:   os.Args[0],
+			Path:   args0,
 			Args:   newArgs,
 			Env:    env,
 			Stderr: os.Stderr,
@@ -100,25 +123,7 @@ func background(args *sshArgs, dest string) (bool, error) {
 	}
 }
 
-var onExitFuncs []func()
-
-func cleanupOnExit() {
-	for i := len(onExitFuncs) - 1; i >= 0; i-- {
-		onExitFuncs[i]()
-	}
-}
-
-var afterLoginFuncs []func()
-
-func cleanupAfterLogin() {
-	for i := len(afterLoginFuncs) - 1; i >= 0; i-- {
-		afterLoginFuncs[i]()
-	}
-}
-
-var isTerminal bool = isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
-
-func TsshMain(args *sshArgs) int {
+func Tssh(args *sshArgs) int {
 
 	// debug log
 	if args.Debug {
@@ -126,7 +131,9 @@ func TsshMain(args *sshArgs) int {
 	}
 
 	// cleanup on exit
-	defer cleanupOnExit()
+	defer func() {
+		onExitFuncs.Cleanup()
+	}()
 
 	// print message after stdin reset
 	var err error
@@ -143,7 +150,7 @@ func TsshMain(args *sshArgs) int {
 
 	// setup virtual terminal on Windows
 	if isTerminal {
-		if err = setupVirtualTerminal(); err != nil {
+		if err = setupVirtualTerminal(args); err != nil {
 			return 2
 		}
 	}
@@ -209,14 +216,16 @@ func sshStart(args *sshArgs) error {
 		if err != nil {
 			return err
 		}
-		cleanupAfterLogin()
+		// cleanupAfterLogin()
+		afterLoginFuncs.Cleanup()
 		wg.Wait()
 		return nil
 	}
 
 	// no command
 	if args.NoCommand {
-		cleanupAfterLogin()
+		// cleanupAfterLogin()
+		afterLoginFuncs.Cleanup()
 		_ = ss.client.Wait()
 		return nil
 	}
@@ -232,9 +241,7 @@ func sshStart(args *sshArgs) error {
 	// execute remote tools if necessary
 	execRemoteTools(args, ss.client)
 
-	if agentForwarding != nil {
-		agentForwarding()
-	}
+	agents.Forward()
 
 	// run command or start shell
 	if ss.cmd != "" {
@@ -264,21 +271,15 @@ func sshStart(args *sshArgs) error {
 		return err
 	}
 
-	// for addr, ag := range agents {
-	// 	if ag.connClose != nil {
-	// 		ag.connClose()
-	// 	}
-	// }
-
-	if agentConnClose != nil {
-		agentConnClose()
-	}
+	agents.Close(false)
+	agents.OnExit()
 
 	// cleanup and wait for exit
-	cleanupAfterLogin()
-	_ = ss.session.Wait()
+	// cleanupAfterLogin()
+	afterLoginFuncs.Cleanup()
+	err = ss.session.Wait()
 	if args.Background {
-		_ = ss.client.Wait()
+		err = ss.client.Wait()
 	}
-	return nil
+	return err
 }

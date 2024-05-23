@@ -181,7 +181,7 @@ func (c *controlMaster) start(args *sshArgs) error {
 
 	defer func() {
 		if !c.exited.Load() {
-			onExitFuncs = append(onExitFuncs, func() {
+			onExitFuncs.Add(func() {
 				c.quit(exitCh)
 			})
 		}
@@ -307,9 +307,7 @@ func startControlMaster(args *sshArgs, sshPath string) error {
 	// 10 seconds is enough for tssh to connect
 	cmdArgs = append(cmdArgs, "echo ok; sleep 10")
 
-	if enableDebugLogging {
-		debug("control master: %s %s", sshPath, strings.Join(cmdArgs, " "))
-	}
+	debug("control master: %s %s", sshPath, strings.Join(cmdArgs, " "))
 
 	ctrlMaster := &controlMaster{path: sshPath, args: cmdArgs}
 	if err := ctrlMaster.start(args); err != nil {
@@ -327,6 +325,7 @@ func connectViaControl(args *sshArgs, param *sshParam) *ssh.Client {
 	case "", "none":
 		return nil
 	}
+	ctrlPath = expandEnv(ctrlPath)
 
 	sshPath, majorVersion, minorVersion, err := getOpenSSH()
 	if err != nil {

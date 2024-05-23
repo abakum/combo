@@ -3,29 +3,30 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 	"path"
 	"runtime"
+	"strings"
 
 	"github.com/abakum/menu"
 	"github.com/xlab/closer"
 )
 
 var (
-	letf = log.New(os.Stdout, menu.BUG, log.Ltime|log.Lshortfile)
-	let  = log.New(os.Stdout, menu.BUG, log.Ltime)
-	ltf  = log.New(os.Stdout, " ", log.Ltime|log.Lshortfile)
-	lt   = log.New(os.Stdout, " ", log.Ltime)
-	li   = log.New(os.Stdout, "\t", 0)
+	lef = log.New(Std, menu.BUG, log.Lshortfile)
+	le  = log.New(Std, menu.BUG, 0)
+	lf  = log.New(Std, menu.GT, log.Lshortfile)
+	l   = log.New(Std, menu.GT, 0)
+	lt  = log.New(Std, "\t", 0)
 )
 
 // Colorable log
 func SetColor() {
 	bug, _, out := menu.BugGtOut()
-	letf.SetOutput(out)
-	let.SetOutput(out)
-	letf.SetPrefix(bug)
-	let.SetPrefix(bug)
+	lef.SetOutput(out)
+	le.SetOutput(out)
+	bug = strings.ReplaceAll(bug, menu.BUG, "<")
+	lef.SetPrefix(bug)
+	le.SetPrefix(bug)
 }
 
 // Get source of code
@@ -52,16 +53,20 @@ func srcError(err error) error {
 	return fmt.Errorf(src(8)+" %w", err)
 }
 
+// Вывод Ok если нет ошибки
 func PrintOk(s string, err error) (ok bool) {
 	ok = err == nil
 	if ok {
-		lt.Println(src(8), s, "ok")
+		l.Println(src(8), s, "ok")
+		fmt.Fprint(l.Writer(), "\r")
 	} else {
-		let.Println(src(8), s, err)
+		le.Println(src(8), s, err)
+		fmt.Fprint(le.Writer(), "\r")
 	}
 	return ok
 }
 
+// Вывод ошибки если она есть
 func Println(v ...any) (ok bool) {
 	anys := []any{src(8)}
 	ok = true
@@ -81,34 +86,44 @@ func Println(v ...any) (ok bool) {
 		}
 	}
 	if ok {
-		lt.Println(anys...)
+		l.Println(anys...)
+		fmt.Fprint(l.Writer(), "\r")
 	} else {
-		let.Println(anys...)
+		le.Println(anys...)
+		fmt.Fprint(le.Writer(), "\r")
 	}
 	return ok
 }
 
+// Вывод ошибки и завершение приложения
 func Fatal(err error) {
 	if err != nil {
-		let.Println(src(8), err)
+		le.Println(src(8), err)
+		fmt.Fprint(le.Writer(), "\r")
 		closer.Exit(1)
 	}
 }
+
+// Вывод ошибки и завершение приложения в случаи выполнения любого условия case
 func FatalOr(s string, cases ...bool) {
 	for _, c := range cases {
 		if c {
-			let.Println(src(8), s)
+			le.Println(src(8), s)
+			fmt.Fprint(le.Writer(), "\r")
 			closer.Exit(1)
 			break
 		}
 	}
 }
+
+// Вывод ошибки и завершение приложения в случаи выполнения всех условий case
 func FatalAnd(s string, cases ...bool) {
 	for _, c := range cases {
 		if !c {
 			return
 		}
 	}
-	let.Println(src(8), s)
+	le.Println(src(8), s)
+	fmt.Fprint(le.Writer(), "\r")
 	closer.Exit(1)
 }

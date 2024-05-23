@@ -43,7 +43,7 @@ type stdinState struct {
 	state *term.State
 }
 
-func setupVirtualTerminal() error {
+func setupVirtualTerminal(_ *sshArgs) error {
 	return nil
 }
 

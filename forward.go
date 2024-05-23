@@ -201,9 +201,20 @@ func isGatewayPorts(args *sshArgs) bool {
 
 func listenOnLocal(args *sshArgs, addr *string, port string) (listeners []net.Listener) {
 	listen := func(network, address string) {
+		switch network {
+		case "tcp4":
+			if args.IPv6Only {
+				return
+			}
+		case "tcp6":
+			if args.IPv4Only {
+				return
+			}
+		}
 		listener, err := net.Listen(network, address)
 		if err != nil {
-			debug("forward listen on local '%s' failed: %v", address, err)
+			warning("forward listen on local '%s' failed: %v", address, err)
+			listeners = append(listeners, nil)
 		} else {
 			debug("forward listen on local '%s' success", address)
 			listeners = append(listeners, listener)
@@ -224,10 +235,22 @@ func listenOnLocal(args *sshArgs, addr *string, port string) (listeners []net.Li
 }
 
 func listenOnRemote(args *sshArgs, client *ssh.Client, addr *string, port string) (listeners []net.Listener) {
+
 	listen := func(network, address string) {
+		switch network {
+		case "tcp4":
+			if args.IPv6Only {
+				return
+			}
+		case "tcp6":
+			if args.IPv4Only {
+				return
+			}
+		}
 		listener, err := client.Listen(network, address)
 		if err != nil {
-			debug("forward listen on remote '%s' failed: %v", address, err)
+			warning("forward listen on remote '%s' failed: %v", address, err)
+			listeners = append(listeners, nil)
 		} else {
 			debug("forward listen on remote '%s' success", address)
 			listeners = append(listeners, listener)
@@ -289,10 +312,22 @@ func dynamicForward(client *ssh.Client, b *bindCfg, args *sshArgs) {
 	})
 	if err != nil {
 		warning("dynamic forward failed: %v", err)
+		if ExitOnForwardFailure {
+			warning("client %s closed", client.LocalAddr().String())
+			client.Close()
+		}
 		return
 	}
 
 	for _, listener := range listenOnLocal(args, b.addr, strconv.Itoa(b.port)) {
+		if listener == nil {
+			if ExitOnForwardFailure {
+				warning("client %s closed", client.LocalAddr().String())
+				client.Close()
+				return
+			}
+			continue
+		}
 		go func(listener net.Listener) {
 			defer listener.Close()
 			for {
@@ -333,6 +368,14 @@ func netForward(local, remote net.Conn) {
 func localForward(client *ssh.Client, f *forwardCfg, args *sshArgs) {
 	remoteAddr := joinHostPort(f.destHost, strconv.Itoa(f.destPort))
 	for _, listener := range listenOnLocal(args, f.bindAddr, strconv.Itoa(f.bindPort)) {
+		if listener == nil {
+			if ExitOnForwardFailure {
+				warning("client %s closed", client.LocalAddr().String())
+				client.Close()
+				return
+			}
+			continue
+		}
 		go func(listener net.Listener) {
 			defer listener.Close()
 			for {
@@ -359,6 +402,14 @@ func localForward(client *ssh.Client, f *forwardCfg, args *sshArgs) {
 func remoteForward(client *ssh.Client, f *forwardCfg, args *sshArgs) {
 	localAddr := joinHostPort(f.destHost, strconv.Itoa(f.destPort))
 	for _, listener := range listenOnRemote(args, client, f.bindAddr, strconv.Itoa(f.bindPort)) {
+		if listener == nil {
+			if ExitOnForwardFailure {
+				warning("client %s closed", client.RemoteAddr().String())
+				client.Close()
+				return
+			}
+			continue
+		}
 		go func(listener net.Listener) {
 			defer listener.Close()
 			for {
@@ -382,10 +433,17 @@ func remoteForward(client *ssh.Client, f *forwardCfg, args *sshArgs) {
 	}
 }
 
+var ExitOnForwardFailure = false
+
 func sshForward(client *ssh.Client, args *sshArgs, param *sshParam) {
 	// clear all forwardings
 	if strings.ToLower(getOptionConfig(args, "ClearAllForwardings")) == "yes" {
 		return
+	}
+
+	if strings.ToLower(getOptionConfig(args, "ExitOnForwardFailure")) == "yes" {
+		debug("ExitOnForwardFailure yes")
+		ExitOnForwardFailure = true
 	}
 
 	// dynamic forward

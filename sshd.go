@@ -35,7 +35,7 @@ func server(h, p, imag, use string, signer ssh.Signer) { //, authorizedKeys []gl
 		Addr: net.JoinHostPort(h, p),
 		// next for ssh -R host:port:x:x
 		ReversePortForwardingCallback: gl.ReversePortForwardingCallback(func(ctx gl.Context, host string, port uint32) bool {
-			li.Println("Attempt to bind - Начать слушать", host, port, "granted - позволено")
+			lt.Println("Attempt to bind - Начать слушать", host, port, "granted - позволено")
 			return true
 		}),
 		RequestHandlers: map[string]gl.RequestHandler{
@@ -46,7 +46,7 @@ func server(h, p, imag, use string, signer ssh.Signer) { //, authorizedKeys []gl
 
 		// next for ssh -L x:dhost:dport
 		LocalPortForwardingCallback: gl.LocalPortForwardingCallback(func(ctx gl.Context, dhost string, dport uint32) bool {
-			li.Println("Accepted forward - Разрешен перенос", dhost, dport)
+			lt.Println("Accepted forward - Разрешен перенос", dhost, dport)
 			return true
 		}),
 		ChannelHandlers: map[string]gl.ChannelHandler{
@@ -76,19 +76,16 @@ func server(h, p, imag, use string, signer ssh.Signer) { //, authorizedKeys []gl
 			ctx.SetValue("user", winssh.UserName())
 		}
 		Println("User", ctx.Value("user"), "from", ctx.RemoteAddr())
-		ok := winssh.Authorized(key, authorizedKeys)
-		s := "was not"
-		if ok {
-			s = "was"
-		}
-		Println(s, "authorised by key", FingerprintSHA256(key))
-		if ok {
-			return true
-		}
 
 		cert, ok := key.(*ssh.Certificate)
 		if !ok {
-			return false
+			ok = winssh.Authorized(key, authorizedKeys)
+			s := "was not"
+			if ok {
+				s = "was"
+			}
+			Println(s, "authorized by the key", FingerprintSHA256(key))
+			return ok
 		}
 		// next for certificate of client
 		if cert.CertType != ssh.UserCert {
@@ -105,7 +102,7 @@ func server(h, p, imag, use string, signer ssh.Signer) { //, authorizedKeys []gl
 			return false
 		}
 		//  cert.Permissions
-		Println("is authorized by certificate", FingerprintSHA256(cert.SignatureKey))
+		Println("was authorized by certificate", FingerprintSHA256(cert.SignatureKey))
 		return true
 
 	})
@@ -116,19 +113,19 @@ func server(h, p, imag, use string, signer ssh.Signer) { //, authorizedKeys []gl
 	gl.Handle(func(s gl.Session) {
 		defer s.Exit(0)
 		clientVersion := s.Context().ClientVersion()
-		ltf.Println(clientVersion)
+		lf.Println(clientVersion)
 		if len(s.Command()) == 2 && s.Command()[0] == imag && s.Command()[1] == RESET {
 			caRW()
 		}
 		winssh.ShellOrExec(s)
 	})
 
-	li.Printf("%s daemon waiting on - сервер ожидает на %s\n", imag, server.Addr)
-	li.Println("to connect use - чтоб подключится используй", use)
+	lt.Printf("%s daemon waiting on - сервер ожидает на %s\n", imag, server.Addr)
+	lt.Println("to connect use - чтоб подключится используй", use)
 
 	go func() {
 		watch(ctxRWE, caRW, server.Addr)
-		ltf.Println("local done")
+		lf.Println("local done")
 		server.Close()
 	}()
 	go established(ctxRWE, server.Addr)
@@ -193,7 +190,7 @@ func watch(ctx context.Context, ca context.CancelFunc, dest string) {
 				return s.State == netstat.Listen && s.LocalAddr.String() == dest
 			})
 			if new == 0 {
-				ltf.Print("The service has been stopped - Служба остановлена\n\t", dest)
+				lf.Print("The service has been stopped - Служба остановлена\n\t", dest)
 				if ca != nil {
 					ca()
 				}
@@ -201,13 +198,13 @@ func watch(ctx context.Context, ca context.CancelFunc, dest string) {
 			}
 			if old != new {
 				if new > old {
-					ltf.Print("The service is running - Служба работает\n", ste)
+					lf.Print("\nThe service is running - Служба работает\n", ste)
 				}
 				ste_ = ste
 				old = new
 			}
 			if ste_ != ste {
-				ltf.Print("The service has been changed - Служба сменилась\n", ste)
+				lf.Print("The service has been changed - Служба сменилась\n", ste)
 				ste_ = ste
 			}
 		case <-ctx.Done():
@@ -232,17 +229,17 @@ func established(ctx context.Context, dest string) {
 			if old != new {
 				switch {
 				case new == 0:
-					ltf.Println(dest, "There are no connections - Нет подключений")
+					lf.Println(dest, "There are no connections - Нет подключений")
 				case old > new:
-					ltf.Print(dest, " Connections have decreased - Подключений уменьшилось\n", ste)
+					lf.Print(dest, " Connections have decreased - Подключений уменьшилось\n", ste)
 				default:
-					ltf.Print(dest, " Connections have increased - Подключений увеличилось\n", ste)
+					lf.Print(dest, " Connections have increased - Подключений увеличилось\n", ste)
 				}
 				ste_ = ste
 				old = new
 			}
 			if ste_ != ste {
-				ltf.Print(dest, " Сonnections have changed - Подключения изменились\n", ste)
+				lf.Print(dest, " Сonnections have changed - Подключения изменились\n", ste)
 				ste_ = ste
 			}
 		case <-ctx.Done():

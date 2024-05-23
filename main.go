@@ -30,8 +30,8 @@ import (
 	"github.com/abakum/embed-encrypt/encryptedfs"
 	"github.com/abakum/menu"
 	"github.com/abakum/pageant"
+	"github.com/abakum/putty_hosts"
 	"github.com/abakum/winssh"
-	"github.com/freman/putty_hosts"
 	"github.com/kevinburke/ssh_config"
 	"github.com/trzsz/go-arg"
 
@@ -54,6 +54,7 @@ const (
 	OSSH     = "OpenSSH_for_Windows"
 	RESET    = "-r"
 	SSHJ     = "ssh-j"
+	SSHJ2    = "127.0.0.2"
 	JumpHost = SSHJ + ".com"
 	EQ       = "="
 	TERM     = "xterm-256color"
@@ -98,6 +99,8 @@ var (
 	Config     = filepath.Join(SshUserDir, "config")
 	KnownHosts = filepath.Join(SshUserDir, "known_hosts")
 	args       sshArgs
+	Std        = menu.Std
+	imag       string
 )
 
 //go:generate go run github.com/abakum/version
@@ -115,7 +118,7 @@ func main() {
 	SetColor()
 	exe, err := os.Executable()
 	Fatal(err)
-	imag := strings.Split(filepath.Base(exe), ".")[0]
+	imag = strings.Split(filepath.Base(exe), ".")[0]
 
 	ips := ints()
 	Println(runtime.GOARCH, runtime.GOOS, GoVer(), exe, Ver, ips)
@@ -135,21 +138,21 @@ func main() {
 
 	// Like `parser := arg.MustParse(&args)` but override built in option `-v, --version` of package `arg`
 	parser, err := NewParser(arg.Config{}, &args)
-	if err != nil {
-		fmt.Fprintln(os.Stdout, err)
-		os.Exit(-1)
-	}
+	Fatal(err)
 
 	a2s := make([]string, 0) // without built in option
 	deb := false
 	for _, arg := range os.Args[1:] {
 		switch arg {
-		case "-h", "-help", "--help":
-			parser.WriteHelp(os.Stderr)
-			os.Exit(0)
+		case "-help", "--help":
+			parser.WriteHelp(Std)
+			return
+		case "-h":
+			parser.WriteUsage(Std)
+			return
 		case "-version", "--version":
-			fmt.Fprintln(os.Stderr, args.Version())
-			os.Exit(0)
+			Println(args.Version())
+			return
 		case "-v":
 			deb = true
 		default:
@@ -158,40 +161,106 @@ func main() {
 	}
 	err = parser.Parse(a2s)
 	if err != nil {
-		parser.WriteUsage(os.Stdout)
-		fmt.Fprintln(os.Stdout, err)
-		os.Exit(0)
+		parser.WriteUsage(Std)
+		Fatal(err)
 	}
 	if args.Ver {
-		fmt.Fprintln(os.Stderr, args.Version())
-		os.Exit(0)
+		Println(args.Version())
+		return
 	}
 	args.Debug = args.Debug || deb
 
 	u, h, p := parseDestination(args.Destination)
+	if h == "" && p == "" && strings.Contains(args.Destination, ":") {
+		args.Daemon = true
+	}
+	if u == "" {
+		u = imag // Имя для посредника ssh-j.com
+	}
 	if args.Daemon {
-		if u == "" {
-			u = winssh.UserName()
-		}
+		hh := ""
 		switch h {
 		case "":
 			h = LH
+			hh = h
 		case "*":
 			h = ALL
+			hh = ips[len(ips)-1]
 		case "_":
 			h = ips[0]
+			hh = h
 		}
 		if p == "" {
 			p = "2222"
 		}
-		s := use(u, h, p, imag, ips...)
+		s := use(u, hh, p, imag, ips...)
+		err = sshJ(JumpHost, u, hh, p)
+		if err == nil {
+			// rc := "-f --reconnect "
+			rc := ""
+			if args.Debug {
+				rc += "--debug "
+			}
+			rc += JumpHost
+			var args sshArgs
+			mustParse(&args, strings.Fields(rc))
+			isTerminal = false
+			s := fmt.Sprintf("`tssh %s`", rc)
+			first := true
+			go func() {
+				for {
+					Println(s, "has been started")
+					code := Tssh(&args)
+					Println(s, "has been stopped with code:", code, fmt.Errorf(""))
+					if first && code > 0 {
+						Println("Попробуйте сменить имя посредника с", u, "на другое. Например так `"+imag+" qwerty@:`")
+						closer.Exit(code)
+					}
+					first = false
+					time.Sleep(TOR)
+				}
+			}()
+		} else {
+			Println(fmt.Sprintf("configure RemoteForward with [%v] failed:", JumpHost), err)
+			closer.Close()
+		}
+
 		for {
 			server(h, p, imag, s, signer) //, authorizedKeys
 			winssh.KidsDone(os.Getpid())
+			Println("server has been stopped - сервер остановлен")
 			time.Sleep(TOR)
 		}
 	}
-	TsshMain(&args)
+	// Алиас jc для клиента
+	hka := signer.PublicKey().Type() + "-cert-v01@openssh.com"
+	cert, ok := signers[0].PublicKey().(*ssh.Certificate)
+	if ok {
+		hka = cert.Key.Type()
+	}
+	kvm := map[string]string{
+		"User":               "_", // as $USER at sshd
+		"HostName":           SSHJ2,
+		"UserKnownHostsFile": "~/.ssh/" + imag,
+		"ProxyJump":          u + "@" + JumpHost,
+		"HostKeyAlgorithms":  hka,
+	}
+	err = SshConfig(SSHJ, kvm)
+	Println(fmt.Sprintf("configure ProxyJump with [%s]", SSHJ), err)
+	if h == "" && p == "" && err == nil {
+		// `combo user@` or just `combo`
+		args.Destination = SSHJ
+		code := Tssh(&args)
+		if code > 0 {
+			Println(Errorf("tssh exit with code:%d", code))
+		}
+		closer.Exit(code)
+	}
+	code := Tssh(&args)
+	if code > 0 {
+		Println(Errorf("tssh exit with code:%d", code))
+	}
+	closer.Exit(code)
 	return
 
 	// для клиента
@@ -216,6 +285,13 @@ func main() {
 		return
 	}
 
+}
+
+func mustParse(args *sshArgs, a []string) {
+	parser, err := NewParser(arg.Config{}, args)
+	Fatal(err)
+	err = parser.Parse(a)
+	Fatal(err)
 }
 
 func uhp(uhp, dh, dp string, ips ...string) (u, h, p string) {
@@ -256,6 +332,7 @@ func ints() (ips []string) {
 }
 
 func cleanup() {
+	Println("cleanup")
 	if runtime.GOOS == "windows" {
 		menu.PressAnyKey("Press any key - Нажмите любую клавишу", TOW)
 	}
@@ -316,11 +393,11 @@ func getSigners(caSigner ssh.Signer, id string, principals ...string) (signers [
 
 		pref := "ca"
 		if i > 0 {
-			t := strings.TrimPrefix(pub.Type(), "ssh-")
-			if strings.HasPrefix(t, "ecdsa") {
-				t = "ecdsa"
+			ok := false
+			pref, ok = type2pub[pub.Type()]
+			if !ok {
+				continue
 			}
-			pref = "id_" + t
 		}
 
 		data := ssh.MarshalAuthorizedKey(pub)
@@ -433,22 +510,14 @@ func SplitHostPort(hp, host, port string) (h, p string) {
 	return hp, port
 }
 
-func useLine(load, u, h, p string) string {
+func useLineShort(u, load string) string {
 	return fmt.Sprintf(
-		"\n\t`%s %s@%s:%s`"+
-			"\n\t`ssh -o UserKnownHostsFile=~/.ssh/%s %s@%s%s`"+
-			"\n\t`putty -load %s %s@%s%s`",
-		load, u, h, p,
-		load, u, h, pp("p", p, p == PORT),
-		load, u, h, pp("P", p, p == PORT),
-	)
-}
-func useLineShort(load string) string {
-	return fmt.Sprintf(
-		"\n\t`ssh %s`"+
-			"\n\t`putty @%s`"+
-			"\n\t`plink -load %s -no-antispoof`",
-		load,
+		"\n\tlocal - локально `%s %s` or over jump host - или через посредника `%s %s@`"+
+			"\n\tlocal - локально `ssh %s` or over jump host - или через посредника `ssh %s@ssh-j`"+
+			"\n\tlocal - локально `putty @%s`"+
+			"\n\tlocal - локально `plink -load %s -no-antispoof`",
+		load, load, load, u,
+		load, u,
 		load,
 		load,
 	)
@@ -623,8 +692,42 @@ func SshConfig(host string, kvm map[string]string) (err error) {
 	return
 }
 
+// Алиас rc это клиент дальнего переноса -R на стороне sshd
+func sshJ(host, u, h, p string) (err error) {
+	//ssh-keyscan ssh-j.com -f ~/.ssh/ssh-j
+	s := `ssh-j.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCf7bgcKf2oDCpMdHjIqUkMihxpiVZ3j0zrRUeKhgn4FXx1FXerCe7cojAVuGcFsTH4JzIiK6SInKMRt8UANUBggae2llCHFsjV7L6NcLPgaByhWi4gOZba+FT1A0PSX7T8BFNPOmcu696PNILFru98BRf2Vd43E9mBAintLH5Ya6XnOQf9D44XNWToebokcEv48ju0dWDiRwt5IhQPj+cVZstWWJaqGueoR9GWcgSiPT6bISp0lSJfSq/ird7EEKJrU3f2g7Zi20DiDNJS7lfuWDKZeAphoZTXhciIlVRDWQHR8ssgiWVkcjWWi0LgDZ7hhhh+pcfvf71qpnOR0m2b
+ssh-j.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPXSkWZ8MqLVM68cMjm+YR4geDGfqKPEcIeC9aKVyUW32brmgUrFX2b0I+z4g6rHYRwGeqrnAqLmJ6JJY0Ufm80=
+ssh-j.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIiyFQuTwegicQ+8w7dLA7A+4JMZkCk8TLWrKPklWcRt
+`
+	// Для putty
+	for _, line := range strings.Split(s, "\n") {
+		if line == "" {
+			continue
+		}
+		k, v, err := putty_hosts.ToPutty(line)
+		if err != nil {
+			Println(err)
+		} else {
+			Conf(SshHostKeys, " ", map[string]string{k: v})
+		}
+	}
+	// Для ssh
+	name := path.Join(SshUserDir, SSHJ)
+	err = os.WriteFile(name, []byte(s), FILEMODE)
+	if err != nil {
+		return
+	}
+	return SshConfig(host, map[string]string{
+		"UserKnownHostsFile":       "~/.ssh/" + SSHJ,
+		"User":                     u,
+		"ExitOnForwardFailure":     "yes",
+		"PreferredAuthentications": "none",
+		"RemoteForward":            fmt.Sprintf("%s:%s %s:%s", SSHJ2, PORT, h, p),
+	})
+}
+
 // Пишем HostName serveo.net UserKnownHostsFile для ssh клиента
-func ServeoNet(host, h, p string) (err error) {
+func serveo(host, h, p string) (err error) {
 	s := host + " ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDxYGqSKVwJpQD1F0YIhz+bd5lpl7YesKjtrn1QD1RjQcSj724lJdCwlv4J8PcLuFFtlAA8AbGQju7qWdMN9ihdHvRcWf0tSjZ+bzwYkxaCydq4JnCrbvLJPwLFaqV1NdcOzY2NVLuX5CfY8VTHrps49LnO0QpGaavqrbk+wTWDD9MHklNfJ1zSFpQAkSQnSNSYi/M2J3hX7P0G2R7dsUvNov+UgNKpc4n9+Lq5Vmcqjqo2KhFyHP0NseDLpgjaqGJq2Kvit3QowhqZkK4K77AA65CxZjdDfpjwZSuX075F9vNi0IFpFkGJW9KlrXzI4lIzSAjPZBURhUb8nZSiPuzj\n"
 	k, v, err := putty_hosts.ToPutty(s)
 	if err != nil {
@@ -643,42 +746,25 @@ func ServeoNet(host, h, p string) (err error) {
 		"ExitOnForwardFailure":     "yes",
 		"PreferredAuthentications": "keyboard-interactive",
 		"StdinNull":                "yes",
-		"RemoteForward":            fmt.Sprintf("%s:%s %s:%s", SSHJ, PORT, h, p),
+		"RemoteForward":            fmt.Sprintf("%s:%s %s:%s", SSHJ2, PORT, h, p),
 	})
 }
 
 // Как запускать клиентов
 func use(u, h, p, load string, ips ...string) (s string) {
-	if h == ALL {
-		for _, ip := range ips {
-			h = ip
-			s += useLine(load, u, h, p)
-		}
-	} else {
-		s += useLine(load, u, h, p)
-	}
-	s += useLineShort(load)
+	s = useLineShort(u, load)
 
+	// Для алиаса combo
 	kvm := map[string]string{
-		"User":               u,
+		"User":               "_",
 		"HostName":           h,
 		"UserKnownHostsFile": "~/.ssh/" + load,
 	}
 	if p != PORT {
 		kvm["Port"] = p
 	}
-	Println("comboSession", SshConfig(load, kvm))
-
-	kvm = map[string]string{
-		"User":               "_", // as $user at server
-		"HostName":           SSHJ,
-		"UserKnownHostsFile": "~/.ssh/" + load,
-		"ProxyJump":          "_@" + JumpHost, // not empty user for putty
-	}
-	Println("jumpSession", SshConfig(SSHJ, kvm))
-
+	Println("combo", SshConfig(load, kvm))
 	Println("SshToPutty", SshToPutty())
-	Println("JumpHost", ServeoNet(JumpHost, h, p))
 	return
 }
 

@@ -44,7 +44,6 @@ import (
 	"github.com/alessio/shellescape"
 	"github.com/skeema/knownhosts"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/term"
 )
 
@@ -55,14 +54,16 @@ func debug(format string, a ...any) {
 	if !enableDebugLogging {
 		return
 	}
-	fmt.Fprintf(os.Stderr, fmt.Sprintf("\033[0;36mdebug:\033[0m %s\r\n", format), a...)
+	// fmt.Fprintf(os.Stderr, fmt.Sprintf("\033[0;36mdebug:\033[0m %s\r\n", format), a...)
+	l.Printf(fmt.Sprintf("%s %s\r\n", src(8), format), a...)
 }
 
 var warning = func(format string, a ...any) {
 	if !envbleWarningLogging {
 		return
 	}
-	fmt.Fprintf(os.Stderr, fmt.Sprintf("\033[0;33mWarning: %s\033[0m\r\n", format), a...)
+	// fmt.Fprintf(os.Stderr, fmt.Sprintf("\033[0;33mWarning: %s\033[0m\r\n", format), a...)
+	le.Printf(fmt.Sprintf("%s %s\r\n", src(8), format), a...)
 }
 
 type sshParam struct {
@@ -326,6 +327,7 @@ func getHostKeyCallback(args *sshArgs, param *sshParam) (ssh.HostKeyCallback, kn
 		for _, path := range strings.Fields(knownHostsFiles) {
 			var resolvedPath string
 			if user {
+				path = expandEnv(path)
 				expandedPath, err := expandTokens(path, args, param, "%CdhijkLlnpru")
 				if err != nil {
 					return fmt.Errorf("expand UserKnownHostsFile [%s] failed: %v", path, err)
@@ -354,6 +356,7 @@ func getHostKeyCallback(args *sshArgs, param *sshParam) (ssh.HostKeyCallback, kn
 		}
 		return nil
 	}
+
 	if err := addKnownHostsFiles("UserKnownHostsFile", true); err != nil {
 		return nil, nil, err
 	}
@@ -406,7 +409,7 @@ func getHostKeyCallback(args *sshArgs, param *sshParam) (ssh.HostKeyCallback, kn
 		}
 	}
 
-	return cb, kh, err
+	return caKeysCallback(cb, caKeys(files...)), kh, nil
 }
 
 type sshSigner struct {
@@ -449,9 +452,7 @@ func (s *sshSigner) Sign(rand io.Reader, data []byte) (*ssh.Signature, error) {
 	if err := s.initSigner(); err != nil {
 		return nil, err
 	}
-	if enableDebugLogging {
-		debug("sign without algorithm: %s", ssh.FingerprintSHA256(s.pubKey))
-	}
+	debug("sign without algorithm: %s", ssh.FingerprintSHA256(s.pubKey))
 	return s.signer.Sign(rand, data)
 }
 
@@ -460,14 +461,10 @@ func (s *sshSigner) SignWithAlgorithm(rand io.Reader, data []byte, algorithm str
 		return nil, err
 	}
 	if signer, ok := s.signer.(ssh.AlgorithmSigner); ok {
-		if enableDebugLogging {
-			debug("sign with algorithm [%s]: %s", algorithm, ssh.FingerprintSHA256(s.pubKey))
-		}
+		debug("sign with algorithm [%s]: %s", algorithm, ssh.FingerprintSHA256(s.pubKey))
 		return signer.SignWithAlgorithm(rand, data, algorithm)
 	}
-	if enableDebugLogging {
-		debug("sign without algorithm: %s", ssh.FingerprintSHA256(s.pubKey))
-	}
+	debug("sign without algorithm: %s", ssh.FingerprintSHA256(s.pubKey))
 	return s.signer.Sign(rand, data)
 }
 
@@ -686,17 +683,18 @@ func getPublicKeysAuthMethod(args *sshArgs, param *sshParam) ssh.AuthMethod {
 	addPubKeySigners := func(signers []*sshSigner) {
 		for _, signer := range signers {
 			fingerprint := ssh.FingerprintSHA256(signer.PublicKey())
-			if _, ok := fingerprints[fingerprint]; !ok {
-				if enableDebugLogging {
-					debug("will attempt key: %s %s %s", signer.path, signer.pubKey.Type(), ssh.FingerprintSHA256(signer.pubKey))
-				}
-				fingerprints[fingerprint] = struct{}{}
-				pubKeySigners = append(pubKeySigners, signer)
+			if _, ok := fingerprints[fingerprint]; ok {
+				continue
 			}
+			debug("will attempt key: %s %s %s", signer.path, signer.pubKey.Type(), ssh.FingerprintSHA256(signer.pubKey))
+			fingerprints[fingerprint] = struct{}{}
+			pubKeySigners = append(pubKeySigners, signer)
+
+			fingerprints, pubKeySigners = addCertSigner(args, param, signer, fingerprints, pubKeySigners)
 		}
 	}
 
-	if agentClient := getAgentClient(args, param); agentClient != nil {
+	if agentClient := getAgentClient(args, param, "IdentityAgent"); agentClient != nil {
 		signers, err := agentClient.Signers()
 		if err != nil {
 			warning("get ssh agent signers failed: %v", err)
@@ -1057,6 +1055,11 @@ func sshConnect(args *sshArgs, client *ssh.Client, proxy string) (*ssh.Client, *
 			return err
 		},
 	}
+	// Перед вызовом setupHostKeyAlgorithmsConfig должен быть установлен HostKeyAlgorithms.
+	// If hostkeys are known for the destination host then this default is modified to prefer their algorithms.
+	if err := setupHostKeyAlgorithmsConfig(args, config); err != nil {
+		return nil, param, false, err
+	}
 
 	if err := setupCiphersConfig(args, config); err != nil {
 		return nil, param, false, err
@@ -1165,32 +1168,32 @@ func keepAlive(client *ssh.Client, args *sshArgs) {
 	}()
 }
 
+// Нужен ли перенос агента.
+// Если да то находим пайп агента, ищем не используется ли этот пайп для IdentityAgent если используется дописываем сессию
+// иначе добавляем агента в список агентов
 func sshAgentForward(args *sshArgs, param *sshParam, client *ssh.Client, session *ssh.Session) {
 	if ForwardAgent := getOptionConfig(args, "ForwardAgent"); !args.ForwardAgent &&
 		(args.NoForwardAgent || ForwardAgent == "" || strings.EqualFold(ForwardAgent, "no")) {
 		return
 	}
-	agentConnClose = nil
+
 	addr, err := getForwardAgentAddr(args, param)
 	if err != nil {
-		warning("get agent addr failed: %v", err)
+		warning("get forward agent addr failed: %v", err)
 		return
 	}
-	if addr == "" {
-		warning("forward agent but the socket address is not set")
-		return
+	addr = filepath.Clean(addr)
+	_, ok := agents[addr]
+	if !ok {
+		// Не было IdentityAgent
+		extendedAgent := getAgentClient(args, param, "ForwardAgent")
+		if extendedAgent == nil {
+			return
+		}
+		agents[addr] = &xAgent{extendedAgent: extendedAgent}
 	}
-
-	if err := agent.ForwardToAgent(client, getAgentClient(args, param)); err != nil {
-		warning("forward to agent [%s] failed: %v", addr, err)
-		return
-	}
-
-	if err := agent.RequestAgentForwarding(session); err != nil {
-		warning("request agent forwarding failed: %v", err)
-		return
-	}
-	debug("request ssh agent forwarding success")
+	agents[addr].client = client
+	agents[addr].session = session
 }
 
 func sshLogin(args *sshArgs) (ss *sshSession, err error) {
@@ -1267,7 +1270,7 @@ func sshLogin(args *sshArgs) (ss *sshSession, err error) {
 
 	if !control {
 		// Let's postpone forwarding - maybe we won't have to do it.
-		afterLoginFuncs = append(afterLoginFuncs, func() {
+		afterLoginFuncs.Add(func() {
 			// ssh forward
 			sshForward(ss.client, args, param)
 
@@ -1275,10 +1278,7 @@ func sshLogin(args *sshArgs) (ss *sshSession, err error) {
 			sshX11Forward(args, ss.client, ss.session)
 		})
 
-		// ssh agent forwarding must start before session.Shell or session.Command.
-		agentForwarding = func() {
-			sshAgentForward(args, param, ss.client, ss.session)
-		}
+		sshAgentForward(args, param, ss.client, ss.session)
 	}
 
 	// not terminal or not tty
